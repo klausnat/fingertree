@@ -27,7 +27,7 @@ interface MonoidT v =>  Measured a v where
   measure : a -> v  
 
 ||| QUESTION: possible optimization. do we have interface IsList in Idris? 
-||| to make Affix a and Node a it's instances? 
+||| to make (Affix a) and (Node a) it's instances? 
 ||| to use toList and fromList instead of toListAffix and toListNode?
 
 toListAffix : Affix a -> List a
@@ -99,22 +99,60 @@ viewr (Deep _ prefix deeper (One x)) = ViewEl x $
 viewr (Deep _ prefix deeper suffix) = 
  ViewEl suffixLast $ Deep annot prefix deeper suffixInit 
  where   
-   annot      = measure prefix <+> measure deeper <+> measure suffixInit
-   suffixLast = last $ toListAffix suffix
-   suffixInit = fromListSuffix $ init $ toListSuffix
+   annot           = measure prefix <+> measure deeper <+> measure suffixInit
+   suffixLast      = case last' (toListAffix suffix) of 
+                        Just t => t
+   suffixInit      = fromListAffix xs  
+                     where 
+                        xs = case init' $ toListAffix suffix of
+                               Just z => z
+                                                                
+   
+
 
 viewl : Measured a v => FingerTree v a -> View v a
 viewl Empty = Nil
 viewl (Single x) = ViewEl x Empty
+viewl (Deep _ (One x) deeper suffix) = ViewEl x $
+ case viewl deeper of 
+  ViewEl node rest' => 
+   let pref  = fromListAffix $ toListNode node
+       annot = measure pref <+> measure rest' <+> measure suffix in
+   Deep annot pref rest' suffix
+  Nil               => affixToTree suffix
+viewl (Deep _ prefix deeper suffix) = 
+ ViewEl prefixLast $ Deep annot prefixInit deeper suffix
+ where   
+   annot           = measure prefixInit <+> measure deeper <+> measure suffix
+   prefixLast      = case last' (toListAffix prefix) of 
+                        Just t => t
+   prefixInit      = fromListAffix xs  
+                     where 
+                        xs = case init' $ toListAffix prefix of
+                               Just z => z
 
 
 ||| the deep function creates `Deep` fingertrees
 deep : Measured a v => List a -> FingerTree v (Node v a) -> List a -> FingerTree v a
-deep prefix deeper suffix = case (prefix,suffix) of
- ([],[]) => case viewl deeper of 
-   Nil               => Empty
-   View node deeper' => deep (toListNode node) deeper' [] 
+deep {v} prefix deeper suffix = 
+  case (prefix,suffix) of
+    ([],[]) => case viewl deeper of 
+      Nil                 => Empty
+      ViewEl node deeper' => deep (toListNode node) deeper' [] 
+    ([],_)  => case viewr deeper of 
+      Nil                 => affixToTree $ fromListAffix suffix  
+      ViewEl node deeper' => deep (toListNode node) deeper' suffix
+    (_,[])  => case viewr deeper of 
+      Nil                 => affixToTree $ fromListAffix prefix
+      ViewEl node deeper' => deep prefix deeper' (toListNode node)
+    _                     => Deep annotat (fromListAffix prefix) deeper (fromListAffix suffix)
+  where
+     annotat : v
+     annotat = concat (map measure prefix) <+> measure deeper <+> concat (map measure suffix)
 
+||| if ((length prefix) > 4) || ((length suffix) > 4)
+|||            then error "Affixes can not be longer than 4 elem"            
+                                    
 Show a => Show (FingerTree v a) where
  show Empty      = "Empty"
  show (Single x) = "x"            
