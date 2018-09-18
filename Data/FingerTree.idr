@@ -1,5 +1,9 @@
 module FingerTree 
 
+infixr 5 ><
+infixr 5 <|, :<
+infixl 5 |>, :>
+
 data Affix a = One a | Two a a | Three a a a | Four a a a a  
 data Node v a = Branch3 v a a a | Branch2 v a a 
 
@@ -53,7 +57,12 @@ fromListNode [x,y] = Branch2 m x y where
                                      m = measure x <+> measure y
 fromListNode [x,y,z] = Branch3 m x y z where 
                                      m = measure x <+> measure y <+> measure z
-|||fromList _ = Error "Node must contain 2 or three elements"                                                                          
+|||fromList _ = Error "Node must contain 2 or three elements"                                                          
+affixPrepend : a -> Affix a -> Affix a
+affixPrepend x aff = fromListAffix $ x :: (toListAffix aff)
+
+affixAppend : a -> Affix a -> Affix a               
+affixAppend x aff = fromListAffix $ (toListAffix aff) ++ [x]
  
 ||| mconcat in haskell prelude
 concat : MonoidT m => List m -> m
@@ -86,6 +95,7 @@ affixToTree affix = case (toListAffix affix) of
  [x,y,z]   => Deep (measure affix) (One x) Empty (Two y z)
  [x,y,z,w] => Deep (measure affix) (Two x y) Empty (Two z w)
 
+||| Analyze the right end of sequence
 viewr : (Measured a v) => FingerTree v a -> View v a
 viewr Empty = Nil
 viewr (Single x) = ViewEl x Empty
@@ -109,7 +119,7 @@ viewr (Deep _ prefix deeper suffix) =
                                                                 
    
 
-
+||| Analyze the left end of sequence
 viewl : Measured a v => FingerTree v a -> View v a
 viewl Empty = Nil
 viewl (Single x) = ViewEl x Empty
@@ -130,7 +140,7 @@ viewl (Deep _ prefix deeper suffix) =
                      where 
                         xs = case init' $ toListAffix prefix of
                                Just z => z
-
+|||? what about Nothing? here and in other cases abowe?
 
 ||| the deep function creates `Deep` fingertrees
 deep : Measured a v => List a -> FingerTree v (Node v a) -> List a -> FingerTree v a
@@ -152,7 +162,60 @@ deep {v} prefix deeper suffix =
 
 ||| if ((length prefix) > 4) || ((length suffix) > 4)
 |||            then error "Affixes can not be longer than 4 elem"            
-                                    
+
+||| CONSTRUCTION
+
+||| The empty sequence
+empty : Measured a v => FingerTree v a
+empty = Empty
+
+||| A singleton sequence
+singleton : Measured a v => a -> FingerTree v a
+singleton = Single 
+     
+||| is this the empty sequence?
+null : FingerTree v a -> Bool
+null Empty = True
+null _     = False 
+          
+||| Create a sequence from a finite list of elements
+|||fromList : Measured a v => List a -> FingerTree v a
+|||fromList = foldr (<|) Empty
+
+||| Create a list from a sequence 
+toList : Measured a v => FingerTree v a -> List a
+toList tree = case viewl tree of 
+                Nil => []
+                ViewEl x tree' => x :: toList tree'          
+                              
+||| Add an element to the left end of sequence
+(<|) : Measured a v => a -> FingerTree v a -> FingerTree v a
+x <| Empty      = Single x
+x <| (Single y) = Deep (measure x <+> measure y) (One x) Empty (One y)
+x <| (Deep w (Four a1 a2 a3 a4) deeper suffix) = Deep (w <+> measure x) (Two x a1) (node <| deeper) suffix where
+                                                 node = Branch3 (measure a2 <+> measure a3 <+> measure a4 ) a2 a3 a4
+x <| (Deep w pref deeper suf) = Deep (w <+> measure x) (affixPrepend x pref) deeper suf
+
+||| Add an element to the right end of sequence
+(|>) : Measured a v => FingerTree v a -> a -> FingerTree v a
+Empty |> x      = Single x
+(Single x) |> y = Deep (measure x <+> measure y) (One x) Empty (One y)
+(Deep w prefix deeper (Four a1 a2 a3 a4)) |> x = Deep (w <+> measure x) prefix (deeper |> node) (Two a4 x ) where
+                                                 node = Branch3 (measure a1 <+> measure a2 <+> measure a3 ) a1 a2 a3
+(Deep w pref deeper suf) |> x = Deep (w <+> measure x) pref deeper (affixAppend x suf)
+
+||| Concatenate two sequences
+(><) : FingerTree v a -> FingerTree v a -> FingerTree v a
+
+||| foldr : (a -> b -> b) -> b -> FingerTree v a -> b
+Measured a v => Foldable (FingerTree v) where
+ foldr f acc Empty                          = acc
+ foldr f acc (Single x)                     = f x acc
+ foldr f acc (Deep _ prefix deeper suffix ) = foldr f foldedDeeper (affixToTree prefix) where
+                                                foldedDeeper = foldr f foldedSuffix deeper
+                                                foldedSuffix = (foldr f acc (affixToTree suffix))
+                                        
+
 Show a => Show (FingerTree v a) where
  show Empty      = "Empty"
  show (Single x) = "x"            
