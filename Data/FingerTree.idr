@@ -21,14 +21,19 @@ data View v a = Nil | ViewEl a (FingerTree v a)
 
 ||| Annotations are monoidal: type v is a member of monoid interface ( typeclass in haskell )
 
-interface MonoidT m where
-  -- Called 'mempty' in the Haskell base library.
-  neutral : m
-  -- Called 'mappend' in the Haskell base library.
-  (<+>) : m -> m -> m
-
-interface MonoidT v =>  Measured a v where
+interface Monoid v =>  Measured v a where
   measure : a -> v  
+
+||| foldr : (a -> b -> b) -> b -> FingerTree v a -> b
+Foldable (Node v) where
+ foldr f acc (Branch2 _ x y) = f x (f y acc)
+ foldr f acc (Branch3 _ x y z) = f z $ f y (f z acc)
+ 
+Foldable Affix where
+ foldr f acc (One x) = f x acc
+ foldr f acc (Two x y) = f x (f y acc)
+ foldr f acc (Three x y z) = f z $ f y (f z acc)
+ foldr f acc (Four x y z w) = f x $ f y (f z (f w acc))
 
 ||| QUESTION: possible optimization. do we have interface IsList in Idris? 
 ||| to make (Affix a) and (Node a) it's instances? 
@@ -52,64 +57,71 @@ toListNode : Node v a -> List a
 toListNode (Branch3 _ a b c) = [a,b,c]
 toListNode (Branch2 _ a b)   = [a,b]
 
-fromListNode : Measured a v => List a -> Node v a
+fromListNode : Measured v a => List a -> Node v a
 fromListNode [x,y] = Branch2 m x y where 
                                      m = measure x <+> measure y
 fromListNode [x,y,z] = Branch3 m x y z where 
-                                     m = measure x <+> measure y <+> measure z
+                                     m = (measure x <+> measure y) <+> measure z
 |||fromList _ = Error "Node must contain 2 or three elements"                                                          
+
 affixPrepend : a -> Affix a -> Affix a
 affixPrepend x aff = fromListAffix $ x :: (toListAffix aff)
 
 affixAppend : a -> Affix a -> Affix a               
 affixAppend x aff = fromListAffix $ (toListAffix aff) ++ [x]
  
-||| mconcat in haskell prelude
-concat : MonoidT m => List m -> m
-concat = foldr (<+>) neutral
-
-annotation : (Measured a v) => FingerTree v a -> v
+annotation : (Measured v a) => FingerTree v a -> v
 annotation Empty          = neutral
 annotation (Single x)     = measure x
 annotation (Deep v _ _ _) =  v
 
 
-||| Let's make data type (FingerTree v a) an instance of interface Measured
-Measured a v => Measured (FingerTree v a) v where    
+||| Measurements. Making data type (FingerTree v a) an instance of interface Measured
+Measured v a => Measured v (FingerTree v a) where    
  measure Empty      = neutral
  measure (Single x) = measure x
  measure tree       = annotation tree
  
-Measured a v => Measured (Affix a) v where
- measure = concat . map measure . toListAffix
+Measured v a => Measured v (Affix a) where
+ measure = mconcat . map measure . toListAffix where
+                                                mconcat : List v -> v
+                                                mconcat = foldr (<+>) neutral
 
-Measured a v => Measured (Node v a) v where
+Measured v a => Measured v (Node v a) where
  measure (Branch2 v _ _)   = v
  measure (Branch3 v _ _ _) = v
 
 ||| Convert an affix into an entire tree, doing rebalancing if nesassary
-affixToTree : Measured a v => Affix a -> FingerTree v a
+affixToTree : Measured v a => Affix a -> FingerTree v a
 affixToTree affix = case (toListAffix affix) of
  [x]       => Single x
  [x,y]     => Deep (measure affix) (One x) Empty (One y)
  [x,y,z]   => Deep (measure affix) (One x) Empty (Two y z)
  [x,y,z,w] => Deep (measure affix) (Two x y) Empty (Two z w)
 
+Foldable (FingerTree v) where
+ foldr f acc Empty                          = acc
+ foldr f acc (Single x)                     = f x acc
+ foldr f acc (Deep _ prefix deeper suffix ) = foldr f foldedDeeper prefix where
+                                                foldedDeeper = foldr f foldedSuffix deeper
+                                                foldedSuffix = foldr f acc suffix
+
+
 ||| Analyze the right end of sequence
-viewr : (Measured a v) => FingerTree v a -> View v a
+viewr : (Measured v a) => FingerTree v a -> View v a
 viewr Empty = Nil
 viewr (Single x) = ViewEl x Empty
 viewr (Deep _ prefix deeper (One x)) = ViewEl x $
  case viewr deeper of 
   ViewEl node rest' => 
    let suff  = fromListAffix $ toListNode node
-       annot = measure prefix <+> measure rest' <+> measure suff in
+       annot = (measure prefix <+> measure rest') <+> measure suff in
    Deep annot prefix rest' suff
   Nil               => affixToTree prefix
 viewr (Deep _ prefix deeper suffix) = 
  ViewEl suffixLast $ Deep annot prefix deeper suffixInit 
  where   
-   annot           = measure prefix <+> measure deeper <+> measure suffixInit
+   annot           = (measure prefix <+> measure deeper) <+> measure suffixInit
    suffixLast      = case last' (toListAffix suffix) of 
                         Just t => t
    suffixInit      = fromListAffix xs  
@@ -120,20 +132,20 @@ viewr (Deep _ prefix deeper suffix) =
    
 
 ||| Analyze the left end of sequence
-viewl : Measured a v => FingerTree v a -> View v a
+viewl : Measured v a => FingerTree v a -> View v a
 viewl Empty = Nil
 viewl (Single x) = ViewEl x Empty
 viewl (Deep _ (One x) deeper suffix) = ViewEl x $
  case viewl deeper of 
   ViewEl node rest' => 
    let pref  = fromListAffix $ toListNode node
-       annot = measure pref <+> measure rest' <+> measure suffix in
+       annot = (measure pref <+> measure rest') <+> measure suffix in
    Deep annot pref rest' suffix
   Nil               => affixToTree suffix
 viewl (Deep _ prefix deeper suffix) = 
  ViewEl prefixLast $ Deep annot prefixInit deeper suffix
  where   
-   annot           = measure prefixInit <+> measure deeper <+> measure suffix
+   annot           = (measure prefixInit <+> measure deeper) <+> measure suffix
    prefixLast      = case last' (toListAffix prefix) of 
                         Just t => t
    prefixInit      = fromListAffix xs  
@@ -143,7 +155,7 @@ viewl (Deep _ prefix deeper suffix) =
 |||? what about Nothing? here and in other cases abowe?
 
 ||| the deep function creates `Deep` fingertrees
-deep : Measured a v => List a -> FingerTree v (Node v a) -> List a -> FingerTree v a
+deep : Measured v a => List a -> FingerTree v (Node v a) -> List a -> FingerTree v a
 deep {v} prefix deeper suffix = 
   case (prefix,suffix) of
     ([],[]) => case viewl deeper of 
@@ -166,11 +178,11 @@ deep {v} prefix deeper suffix =
 ||| CONSTRUCTION
 
 ||| The empty sequence
-empty : Measured a v => FingerTree v a
+empty : Measured v a => FingerTree v a
 empty = Empty
 
 ||| A singleton sequence
-singleton : Measured a v => a -> FingerTree v a
+singleton : Measured v a => a -> FingerTree v a
 singleton = Single 
      
 ||| is this the empty sequence?
@@ -179,17 +191,17 @@ null Empty = True
 null _     = False 
           
 ||| Create a sequence from a finite list of elements
-|||fromList : Measured a v => List a -> FingerTree v a
+|||fromList : Measured v a => List a -> FingerTree v a
 |||fromList = foldr (<|) Empty
 
 ||| Create a list from a sequence 
-toList : Measured a v => FingerTree v a -> List a
+toList : Measured v a => FingerTree v a -> List a
 toList tree = case viewl tree of 
                 Nil => []
                 ViewEl x tree' => x :: toList tree'          
                               
 ||| Add an element to the left end of sequence
-(<|) : Measured a v => a -> FingerTree v a -> FingerTree v a
+(<|) : Measured v a => a -> FingerTree v a -> FingerTree v a
 x <| Empty      = Single x
 x <| (Single y) = Deep (measure x <+> measure y) (One x) Empty (One y)
 x <| (Deep w (Four a1 a2 a3 a4) deeper suffix) = Deep (w <+> measure x) (Two x a1) (node <| deeper) suffix where
@@ -197,7 +209,7 @@ x <| (Deep w (Four a1 a2 a3 a4) deeper suffix) = Deep (w <+> measure x) (Two x a
 x <| (Deep w pref deeper suf) = Deep (w <+> measure x) (affixPrepend x pref) deeper suf
 
 ||| Add an element to the right end of sequence
-(|>) : Measured a v => FingerTree v a -> a -> FingerTree v a
+(|>) : Measured v a => FingerTree v a -> a -> FingerTree v a
 Empty |> x      = Single x
 (Single x) |> y = Deep (measure x <+> measure y) (One x) Empty (One y)
 (Deep w prefix deeper (Four a1 a2 a3 a4)) |> x = Deep (w <+> measure x) prefix (deeper |> node) (Two a4 x ) where
@@ -207,14 +219,9 @@ Empty |> x      = Single x
 ||| Concatenate two sequences
 (><) : FingerTree v a -> FingerTree v a -> FingerTree v a
 
-||| foldr : (a -> b -> b) -> b -> FingerTree v a -> b
-Measured a v => Foldable (FingerTree v) where
- foldr f acc Empty                          = acc
- foldr f acc (Single x)                     = f x acc
- foldr f acc (Deep _ prefix deeper suffix ) = foldr f foldedDeeper (affixToTree prefix) where
-                                                foldedDeeper = foldr f foldedSuffix deeper
-                                                foldedSuffix = (foldr f acc (affixToTree suffix))
-                                        
+
+      
+                                                                          
 
 Show a => Show (FingerTree v a) where
  show Empty      = "Empty"
