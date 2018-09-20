@@ -99,13 +99,13 @@ affixToTree affix = case (toListAffix affix) of
  [x,y,z]   => Deep (measure affix) (One x) Empty (Two y z)
  [x,y,z,w] => Deep (measure affix) (Two x y) Empty (Two z w)
 
-Foldable (FingerTree v) where
+{- Foldable (FingerTree v) where
  foldr f acc Empty                          = acc
  foldr f acc (Single x)                     = f x acc
  foldr f acc (Deep _ prefix deeper suffix ) = foldr f foldedDeeper prefix where
                                                 foldedDeeper = foldr f foldedSuffix deeper
                                                 foldedSuffix = foldr f acc suffix
-
+-}
 
 ||| Analyze the right end of sequence
 viewr : (Measured v a) => FingerTree v a -> View v a
@@ -216,11 +216,48 @@ Empty |> x      = Single x
                                                  node = Branch3 (measure a1 <+> measure a2 <+> measure a3 ) a1 a2 a3
 (Deep w pref deeper suf) |> x = Deep (w <+> measure x) pref deeper (affixAppend x suf)
 
+
 ||| Concatenate two sequences
-(><) : FingerTree v a -> FingerTree v a -> FingerTree v a
+nodes : Measured v a => List a -> List (Node v a)
+nodes xs = case xs of 
+   [x,y]      => [Branch2 ((measure x) <+> (measure y)) x y]
+   [x,y,z]    => [Branch3 ((measure x) <+> (measure y) <+> measure z) x y z]
+   x::y::rest => (Branch2 ((measure x) <+> (measure y)) x y) :: nodes rest
+
+getPrefix : FingerTree v a -> Affix a
+getPrefix (Deep _ prefix _ _) = prefix
+
+getSuffix : FingerTree v a -> Affix a
+getSuffix (Deep _ _ _ suffix) = suffix
+
+getDeeper : FingerTree v a -> FingerTree v (Node v a)
+getDeeper (Deep _ _ deeper _) = deeper
+
+concatWithMiddle : Measured v a => FingerTree v a -> List a -> FingerTree v a -> FingerTree v a
+concatWithMiddle Empty      []      right = right
+concatWithMiddle Empty      (x::xs) right = x <| concatWithMiddle Empty xs right
+concatWithMiddle (Single y) xs      right = y <| concatWithMiddle Empty xs right
+
+concatWithMiddle left [] Empty      = left
+concatWithMiddle left xs Empty      = concatWithMiddle left initialList Empty |> lastList
+                                      where
+                                              initialList = case init' xs of 
+                                                                  Just w => w
+                                              lastList    = case last' xs of
+                                                                  Just p => p
+concatWithMiddle left xs (Single y) = concatWithMiddle left xs Empty |> y 
+
+-- recursive case: both trees are deep
+concatWithMiddle left mid right = Deep annot (getPrefix left) deeper' (getSuffix right) 
+                                  where
+                                     deeper' = concatWithMiddle (getDeeper left) mid' (getDeeper right)
+                                     mid' = nodes $ (toListAffix $ getSuffix left) ++ mid ++ (toListAffix $ getPrefix right)    
+                                     annot = annotation left <+> annotation right <+> foldMap measure mid                                                                                     
+
+(><) : Measured v a => FingerTree v a -> FingerTree v a -> FingerTree v a
+left >< right = concatWithMiddle left [] right 
 
 
-      
                                                                           
 
 Show a => Show (FingerTree v a) where
