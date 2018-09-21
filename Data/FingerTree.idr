@@ -19,6 +19,43 @@ data FingerTree v a
 ||| can data type and it's constructor have the same name? View instead of ViewEl
 data View v a = Nil | ViewEl a (FingerTree v a)
 
+||| There is no `deriving` mechanism in idris, let's write Show instances for all tree elements
+
+Show a => Show (Affix a) where
+  show (One x) = "One " ++ (show x)
+  show (Two x y) = "Two " ++ (show x) ++ (show y)
+  show (Three x y z) = "Three " ++ (show x) ++ (show y) ++ (show z)
+  show (Four x y z w) = "Four " ++ (show x) ++ (show y) ++ (show z) ++ (show w)
+  
+(Show a, Show v) => Show (Node v a) where
+  show (Branch3 p x y z) = "Branch3 annot: " ++ (show p) ++ (show x) ++ (show y) ++ (show z)
+  show (Branch2 p x y) = "Branch2 annot: " ++ (show p) ++ (show x) ++ (show y) 
+  
+(Show a, Show v) => Show (FingerTree v a) where
+  show Empty                         = "Empty"
+  show (Single x)                    = "Single " ++ show x    
+  show (Deep v prefix deeper suffix) = "Deep { annotation = " ++ (show v) ++ show prefix ++ show deeper ++ show suffix ++ "}" 
+            
+affixTest : Affix Char
+affixTest = Three 'a' 'b' 'c'
+nodeTest : Node Int Char
+nodeTest = Branch2 2 'e' 'z'
+
+layer3 : FingerTree v a
+layer3 = Empty
+
+layer2 : FingerTree Int (Node Int Char)
+layer2 = Deep 7 prefix layer3 suffix 
+         where
+            prefix = Two (Branch2 2 'i' 'p') (Branch2 2 'e' 'r')
+            suffix = One (Branch3 3 'e' 'w' 'x')
+            
+layer1 : FingerTree Int  Char            
+layer1 = Deep 11 prefix layer2 suffix       
+         where
+            prefix = Three 'a' 'b' 'c'
+            suffix = One 'z'  
+
 ||| Annotations are monoidal: type v is a member of monoid interface ( typeclass in haskell )
 
 interface Monoid v =>  Measured v a where
@@ -99,12 +136,14 @@ affixToTree affix = case (toListAffix affix) of
  [x,y,z]   => Deep (measure affix) (One x) Empty (Two y z)
  [x,y,z,w] => Deep (measure affix) (Two x y) Empty (Two z w)
 
-{- Foldable (FingerTree v) where
+{-Foldable (FingerTree v) where
  foldr f acc Empty                          = acc
  foldr f acc (Single x)                     = f x acc
- foldr f acc (Deep _ prefix deeper suffix ) = foldr f foldedDeeper prefix where
-                                                foldedDeeper = foldr f foldedSuffix deeper
-                                                foldedSuffix = foldr f acc suffix
+ foldr f acc (Deep _ prefix deeper suffix ) = foldr f foldedDeeper prefix 
+                                                where
+                                                   foldedDeeper = foldr f foldedSuffix deeper
+                                                   where 
+                                                      foldedSuffix = foldr f acc suffix
 -}
 
 ||| Analyze the right end of sequence
@@ -218,6 +257,7 @@ Empty |> x      = Single x
 
 
 ||| Concatenate two sequences
+
 nodes : Measured v a => List a -> List (Node v a)
 nodes xs = case xs of 
    [x,y]      => [Branch2 ((measure x) <+> (measure y)) x y]
@@ -233,6 +273,8 @@ getSuffix (Deep _ _ _ suffix) = suffix
 getDeeper : FingerTree v a -> FingerTree v (Node v a)
 getDeeper (Deep _ _ deeper _) = deeper
 
+||| Possible ala-Idris improvement: 
+||| FingerTree v a -> List a -> FingerTree w a -> FingerTree (v <+> m <+> (foldr (<+>) neutral (map measure (List a)))) a
 concatWithMiddle : Measured v a => FingerTree v a -> List a -> FingerTree v a -> FingerTree v a
 concatWithMiddle Empty      []      right = right
 concatWithMiddle Empty      (x::xs) right = x <| concatWithMiddle Empty xs right
@@ -251,16 +293,15 @@ concatWithMiddle left xs (Single y) = concatWithMiddle left xs Empty |> y
 concatWithMiddle left mid right = Deep annot (getPrefix left) deeper' (getSuffix right) 
                                   where
                                      deeper' = concatWithMiddle (getDeeper left) mid' (getDeeper right)
-                                     mid' = nodes $ (toListAffix $ getSuffix left) ++ mid ++ (toListAffix $ getPrefix right)    
-                                     annot = annotation left <+> annotation right <+> foldMap measure mid                                                                                     
+                                     where 
+                                        mid' = nodes $ (toListAffix $ getSuffix left) ++ mid ++ (toListAffix $ getPrefix right)    
+                                     annot = annotation left <+> annotation right <+> foldr (<+>) neutral (map measure mid)
+
 
 (><) : Measured v a => FingerTree v a -> FingerTree v a -> FingerTree v a
 left >< right = concatWithMiddle left [] right 
 
 
                                                                           
-
-Show a => Show (FingerTree v a) where
- show Empty      = "Empty"
- show (Single x) = "x"            
+   
  
