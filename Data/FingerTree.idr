@@ -23,38 +23,21 @@ data View v a = Nil | ViewEl a (FingerTree v a)
 
 Show a => Show (Affix a) where
   show (One x) = "One " ++ (show x)
-  show (Two x y) = "Two " ++ (show x) ++ (show y)
-  show (Three x y z) = "Three " ++ (show x) ++ (show y) ++ (show z)
-  show (Four x y z w) = "Four " ++ (show x) ++ (show y) ++ (show z) ++ (show w)
+  show (Two x y) = "Two " ++ (show x) ++ " " ++ (show y)
+  show (Three x y z) = "Three " ++ (show x) ++ " " ++ (show y) ++ " " ++ (show z)
+  show (Four x y z w) = "Four " ++ (show x) ++ " " ++ (show y) ++ " " ++ (show z) ++ " " ++ (show w)
   
 (Show a, Show v) => Show (Node v a) where
-  show (Branch3 p x y z) = "Branch3 annot: " ++ (show p) ++ (show x) ++ (show y) ++ (show z)
-  show (Branch2 p x y) = "Branch2 annot: " ++ (show p) ++ (show x) ++ (show y) 
+  show (Branch3 p x y z) = " (Branch3 branch-annot: " ++ (show p) ++ " " ++ (show x) ++ " " ++ (show y) ++ " " ++ (show z) ++ ") "
+  show (Branch2 p x y) = " (Branch2 branch-annot: " ++ (show p) ++ " " ++ (show x) ++ " " ++ (show y) ++ ") "
   
 (Show a, Show v) => Show (FingerTree v a) where
   show Empty                         = "Empty"
   show (Single x)                    = "Single " ++ show x    
-  show (Deep v prefix deeper suffix) = "Deep { annotation = " ++ (show v) ++ show prefix ++ show deeper ++ show suffix ++ "}" 
+  show (Deep v prefix deeper suffix) = "Deep { annotation = " ++ (show v) ++ ", prefix = " ++ show prefix ++ ", deeper = " ++ show deeper ++ ", suffix = "  ++ show suffix ++ "}" 
             
-affixTest : Affix Char
-affixTest = Three 'a' 'b' 'c'
-nodeTest : Node Int Char
-nodeTest = Branch2 2 'e' 'z'
 
-layer3 : FingerTree v a
-layer3 = Empty
 
-layer2 : FingerTree Int (Node Int Char)
-layer2 = Deep 7 prefix layer3 suffix 
-         where
-            prefix = Two (Branch2 2 'i' 'p') (Branch2 2 'e' 'r')
-            suffix = One (Branch3 3 'e' 'w' 'x')
-            
-layer1 : FingerTree Int  Char            
-layer1 = Deep 11 prefix layer2 suffix       
-         where
-            prefix = Three 'a' 'b' 'c'
-            suffix = One 'z'  
 
 ||| Annotations are monoidal: type v is a member of monoid interface ( typeclass in haskell )
 
@@ -301,7 +284,73 @@ concatWithMiddle left mid right = Deep annot (getPrefix left) deeper' (getSuffix
 (><) : Measured v a => FingerTree v a -> FingerTree v a -> FingerTree v a
 left >< right = concatWithMiddle left [] right 
 
+{- START TEST TEST TEST START -----------------------------
+-- example to show Affix
+affixTest : Affix Char
+affixTest = Three 'a' 'b' 'c'
+nodeTest : Node Int Char
+nodeTest = Branch2 2 'e' 'z'
 
-                                                                          
+-- example to show 3-layered fingerTree
+
+layer3 : FingerTree v a
+layer3 = Empty
+
+layer2 : FingerTree Int (Node Int Char)
+layer2 = Deep 9 pref layer3 suff
+         where
+            pref = Two (Branch2 2 'i' 's') (Branch2 2 'i' 's')
+            suff = Two (Branch3 3 'n' 'o' 't') (Branch2 2 'a' 't')
+            
+layer1 : FingerTree Int  Char            
+layer1 = Deep 13 prefi layer2 suffi
+         where
+            prefi = Two 't' 'h' 
+            suffi = Three 'r' 'e' 'e'  
+
+exampleTree : FingerTree Int Char
+exampleTree = layer1
+-}
+-- hugeTree -- example to show 4-layered fingerTree
+data Size = Size Int
+data Value a = Value a
+
+Monoid Size where
+  empty             = Size 0
+  (Size x) <+> (Size y) = Size $ x + y
+
+Measured Size (Value a) where
+  measure _ = Size 1 
+ 
+
+layer4 : FingerTree v a                                          
+layer4 = Empty
+
+layer3 : FingerTree Size (Node Size (Node Size (Value Char)))                                       
+layer3 = Deep (Size 27) pr layer4 su where
+           pr = One (Branch2 (Size 4) (Branch2 (Size 2) (Value 'a') (Value 'b')) (Branch2 (Size 2) (Value 'a') (Value 'b')) )
+
+           su = Four (Branch3 (Size 6) (Branch2 (Size 2) (Value 'a') (Value 'b')) (Branch2 (Size 2) (Value 'a') (Value 'b')) (Branch2 (Size 2) (Value 'a') (Value 'b')))
+                     (Branch2 (Size 6) (Branch3 (Size 3) (Value 'a') (Value 'b') (Value 'c')) (Branch3 (Size 3) (Value 'a') (Value 'b') (Value 'c')))
+                     (Branch2 (Size 6) (Branch3 (Size 3) (Value 'a') (Value 'b') (Value 'c')) (Branch3 (Size 3) (Value 'a') (Value 'b') (Value 'c')))
+                     (Branch2 (Size 5) (Branch2 (Size 2) (Value 'a') (Value 'b')) (Branch3 (Size 3) (Value 'a') (Value 'b') (Value 'c')))
+
+layer2 : FingerTree Int (Node Int Char)
+layer2 = Deep (Size 45) p layer3 s where
+          p = Four (Branch3 (Size 3) (Value 'a') (Value 'b') (Value 'c'))
+                   (Branch3 (Size 3) (Value 'a') (Value 'b') (Value 'c'))
+                   (Branch3 (Size 3) (Value 'a') (Value 'b') (Value 'c'))
+                   (Branch3 (Size 3) (Value 'a') (Value 'b') (Value 'c'))
+          s = Three (Branch2 (Size 2) (Value 'a') (Value 'b'))
+                    (Branch2 (Size 2) (Value 'a') (Value 'b'))
+                    (Branch2 (Size 2) (Value 'a') (Value 'b'))
+
+layer1 : FingerTree Int Char
+layer1 = Deep (Size 50) (Three (Value 'a') (Value 'b') (Value 'c')) layer2 (Two (Value 'a') (Value 'b'))
+
+hugeTree : FingerTree Int Char
+hugeTree = layer1                     
+
+                                             
    
  
