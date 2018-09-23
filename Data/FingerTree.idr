@@ -36,8 +36,9 @@ Show a => Show (Affix a) where
   show (Single x)                    = "Single " ++ show x    
   show (Deep v prefix deeper suffix) = "Deep { annotation = " ++ (show v) ++ ", prefix = " ++ show prefix ++ ", deeper = " ++ show deeper ++ ", suffix = "  ++ show suffix ++ "}" 
             
-
-
+(Show v, Show a) => Show (View v a) where
+  show Nil = "Nil"
+  show (ViewEl x tree) = "ViewEl " ++ show x ++ " rest_tree: " ++ show tree
 
 ||| Annotations are monoidal: type v is a member of monoid interface ( typeclass in haskell )
 
@@ -48,6 +49,12 @@ interface Monoid v =>  Measured v a where
 Foldable (Node v) where
  foldr f acc (Branch2 _ x y) = f x (f y acc)
  foldr f acc (Branch3 _ x y z) = f z $ f y (f z acc)
+ 
+branch2        :  (Measured v a) => a -> a -> Node v a
+branch2 a b    =   Branch2 (measure a <+> measure b) a b
+
+branch3        :  (Measured v a) => a -> a -> a -> Node v a
+branch3 a b c  =   Branch3 (measure a <+> measure b <+> measure c) a b c
  
 Foldable Affix where
  foldr f acc (One x) = f x acc
@@ -284,15 +291,32 @@ concatWithMiddle left mid right = Deep annot (getPrefix left) deeper' (getSuffix
 (><) : Measured v a => FingerTree v a -> FingerTree v a -> FingerTree v a
 left >< right = concatWithMiddle left [] right 
 
-{- START TEST TEST TEST START -----------------------------
--- example to show Affix
-affixTest : Affix Char
-affixTest = Three 'a' 'b' 'c'
-nodeTest : Node Int Char
-nodeTest = Branch2 2 'e' 'z'
+||| Transformations
+-- | /O(n)/. The reverse of a sequence.
 
--- example to show 3-layered fingerTree
+reverseNode : (Measured v2 a2) => (a1 -> a2) -> Node v1 a1 -> Node v2 a2
+reverseNode f (Branch2 _ a b) = branch2 (f b) (f a)
+reverseNode f (Branch3 _ a b c) = branch3 (f c) (f b) (f a)
 
+reverseAffix : (a -> b) -> Affix a -> Affix b
+reverseAffix f (One a) = One (f a)
+reverseAffix f (Two a b) = Two (f b) (f a)
+reverseAffix f (Three a b c) = Three (f c) (f b) (f a)
+reverseAffix f (Four a b c d) = Four (f d) (f c) (f b) (f a)
+
+reverseTree : (Measured v2 a2) => (a1 -> a2) -> FingerTree v1 a1 -> FingerTree v2 a2
+reverseTree _ Empty = Empty
+reverseTree f (Single x) = Single (f x)
+reverseTree f (Deep _ pr m sf) =
+    deep (toListAffix (reverseAffix f sf)) (reverseTree (reverseNode f) m) (toListAffix (reverseAffix f pr))
+
+reverse : (Measured v a) => FingerTree v a -> FingerTree v a
+reverse = reverseTree id
+
+{- START TEST TEST TEST START ----------------------------- -}
+
+-- 3-layered fingerTree
+{-
 layer3 : FingerTree v a
 layer3 = Empty
 
@@ -303,7 +327,7 @@ layer2 = Deep 9 pref layer3 suff
             suff = Two (Branch3 3 'n' 'o' 't') (Branch2 2 'a' 't')
             
 layer1 : FingerTree Int  Char            
-layer1 = Deep 13 prefi layer2 suffi
+layer1 = Deep 14 prefi layer2 suffi
          where
             prefi = Two 't' 'h' 
             suffi = Three 'r' 'e' 'e'  
@@ -311,31 +335,42 @@ layer1 = Deep 13 prefi layer2 suffi
 exampleTree : FingerTree Int Char
 exampleTree = layer1
 -}
--- hugeTree -- example to show 4-layered fingerTree
-data Size = Size Int
-data Value a = Value a
+-- 4-layered fingerTree (hugeTree)
 
-Monoid Size where
-  empty             = Size 0
-  (Size x) <+> (Size y) = Size $ x + y
+data SizeT = Size Int
+data ValueT a = Value a
 
-Measured Size (Value a) where
+Show SizeT where
+ show (Size x) = show x
+ 
+Show b => Show (ValueT b) where
+ show (Value x) = show x
+
+Semigroup SizeT where
+  (<+>) (Size x) (Size y) = Size $ x + y
+
+Monoid SizeT where
+  neutral               = Size 0
+
+Monoid SizeT => Measured SizeT (ValueT a) where
   measure _ = Size 1 
  
 
 layer4 : FingerTree v a                                          
 layer4 = Empty
 
-layer3 : FingerTree Size (Node Size (Node Size (Value Char)))                                       
+layer3 : FingerTree SizeT (Node SizeT (Node SizeT (ValueT Char)))                                       
 layer3 = Deep (Size 27) pr layer4 su where
-           pr = One (Branch2 (Size 4) (Branch2 (Size 2) (Value 'a') (Value 'b')) (Branch2 (Size 2) (Value 'a') (Value 'b')) )
+           pr = One (Branch2 (Size 4) 
+                             (Branch2 (Size 2) (Value 'a') (Value 'b')) 
+                             (Branch2 (Size 2) (Value 'a') (Value 'b')) )
 
            su = Four (Branch3 (Size 6) (Branch2 (Size 2) (Value 'a') (Value 'b')) (Branch2 (Size 2) (Value 'a') (Value 'b')) (Branch2 (Size 2) (Value 'a') (Value 'b')))
                      (Branch2 (Size 6) (Branch3 (Size 3) (Value 'a') (Value 'b') (Value 'c')) (Branch3 (Size 3) (Value 'a') (Value 'b') (Value 'c')))
                      (Branch2 (Size 6) (Branch3 (Size 3) (Value 'a') (Value 'b') (Value 'c')) (Branch3 (Size 3) (Value 'a') (Value 'b') (Value 'c')))
                      (Branch2 (Size 5) (Branch2 (Size 2) (Value 'a') (Value 'b')) (Branch3 (Size 3) (Value 'a') (Value 'b') (Value 'c')))
 
-layer2 : FingerTree Int (Node Int Char)
+layer2 : FingerTree SizeT (Node SizeT (ValueT Char))
 layer2 = Deep (Size 45) p layer3 s where
           p = Four (Branch3 (Size 3) (Value 'a') (Value 'b') (Value 'c'))
                    (Branch3 (Size 3) (Value 'a') (Value 'b') (Value 'c'))
@@ -345,12 +380,19 @@ layer2 = Deep (Size 45) p layer3 s where
                     (Branch2 (Size 2) (Value 'a') (Value 'b'))
                     (Branch2 (Size 2) (Value 'a') (Value 'b'))
 
-layer1 : FingerTree Int Char
+layer1 : FingerTree SizeT (ValueT Char)
 layer1 = Deep (Size 50) (Three (Value 'a') (Value 'b') (Value 'c')) layer2 (Two (Value 'a') (Value 'b'))
 
-hugeTree : FingerTree Int Char
+hugeTree : FingerTree SizeT (ValueT Char)
 hugeTree = layer1                     
+
+-- To TEST: 
+{-show (viewr hugeTree)
+show ((Value 't') <| ((Value 'd') <| hugeTree) )
+
+--------   END TEST TEST TEST END  -------------------}
 
                                              
    
+ 
  
