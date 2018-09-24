@@ -102,7 +102,6 @@ annotation Empty          = neutral
 annotation (Single x)     = measure x
 annotation (Deep v _ _ _) =  v
 
-
 ||| Measurements. Making data type (FingerTree v a) an instance of interface Measured
 Measured v a => Measured v (FingerTree v a) where    
  measure Empty      = neutral
@@ -126,15 +125,16 @@ affixToTree affix = case (toListAffix affix) of
  [x,y,z]   => Deep (measure affix) (One x) Empty (Two y z)
  [x,y,z,w] => Deep (measure affix) (Two x y) Empty (Two z w)
 
-{-Foldable (FingerTree v) where
+
+Foldable (FingerTree v) where
  foldr f acc Empty                          = acc
  foldr f acc (Single x)                     = f x acc
- foldr f acc (Deep _ prefix deeper suffix ) = foldr f foldedDeeper prefix 
+ foldr f acc (Deep _ pref deep suff) = foldr f foldedDeeper pref
                                                 where
-                                                   foldedDeeper = foldr f foldedSuffix deeper
+                                                   foldedDeeper = foldr f foldedSuffix deep
                                                    where 
-                                                      foldedSuffix = foldr f acc suffix
--}
+                                                     foldedSuffix = foldr f acc suff
+
 
 ||| Analyze the right end of sequence
 viewr : (Measured v a) => FingerTree v a -> View v a
@@ -228,7 +228,20 @@ toList : Measured v a => FingerTree v a -> List a
 toList tree = case viewl tree of 
                 Nil => []
                 ViewEl x tree' => x :: toList tree'          
-                              
+
+
+-- PROBLEM can't implement Eq and Ord  due to `possibly not total error`
+{-
+(Eq a, Measured v a) => Eq (FingerTree v a) where
+    xs == ys = (FingerTree.toList xs == FingerTree.toList ys)
+
+
+(Eq (FingerTree v a) , Ord a, Measured v a) => Ord (FingerTree v a) where
+    compare xs ys = compare (FingerTree.toList xs) (FingerTree.toList ys)                          
+    
+-}        
+                
+                                                                                          
 ||| Add an element to the left end of sequence
 (<|) : Measured v a => a -> FingerTree v a -> FingerTree v a
 x <| Empty      = Single x
@@ -313,6 +326,65 @@ reverseTree f (Deep _ pr m sf) =
 reverse : (Measured v a) => FingerTree v a -> FingerTree v a
 reverse = reverseTree id
 
+||| Splitting and Search
+-- | A result of 'search', attempting to find a point where a predicate
+-- on splits of the sequence changes from 'False' to 'True'.
+
+data SearchResult v a 
+    = Position (FingerTree v a) a (FingerTree v a)
+        -- ^ A tree opened at a particular element: the prefix to the
+        -- left, the element, and the suffix to the right.
+    | OnLeft
+        -- ^ A position to the left of the sequence, indicating that the
+        -- predicate is 'True' at both ends.
+    | OnRight
+        -- ^ A position to the right of the sequence, indicating that the
+        -- predicate is 'False' at both ends.
+    | Nowhere
+        -- ^ No position in the tree, returned if the predicate is 'True'
+        -- at the left end and 'False' at the right end.  This will not
+        -- occur if the predicate in monotonic on the tree.     
+
+-- making SearchResult an instance of Eq, Ord, Show 
+
+(Show a, Show v) => Show (SearchResult v a) where
+   show (Position tree1 e tree2) = "Position " ++ "(Tree1 = " ++ show tree1 ++ " )"
+                                               ++ "(Element = " ++ show e ++ " )"
+                                               ++ "(Tree1 = " ++ show tree1 ++ " )"
+   show OnLeft = "OnLeft"
+   show OnRight = "OnRight"
+   show Nowhere = "Nowhere"      
+
+{- PROBLEM: cant implement due to `possibly not total error`, see Ord, Eq (FingerTree v a)
+(Eq (FingerTree v a), Eq a) => Eq (SearchResult v a) where
+  (==) OnLeft OnLeft   = True
+  (==) OnLeft _        = False
+  (==) _      OnLeft   = False
+  
+  (==) OnRight OnRight  = True
+  (==) OnRight _        = False
+  (==) _       OnRight  = False
+  
+  (==) Nowhere Nowhere  = True
+  (==) Nowhere _        = False
+  (==) _       Nowhere  = False
+  
+  (==) (Position tree1 e tree2) (Position tree3 r tree4) = if ( tree1 == tree3 && 
+                                                                e == r && 
+                                                                tree2 == tree4 ) 
+                                                           then True 
+                                                           else False
+  (==) (Position tree1 e tree2) _      = False
+  (==) (Position tree1 e tree2) _      = False
+-}  
+  
+{-Ord (SearchResult v a) where
+  compare                                                                                            
+  -}                                                                           
+
+
+
+
 {- START TEST TEST TEST START ----------------------------- -}
 
 -- 3-layered fingerTree
@@ -335,6 +407,8 @@ layer1 = Deep 14 prefi layer2 suffi
 exampleTree : FingerTree Int Char
 exampleTree = layer1
 -}
+
+{-
 -- 4-layered fingerTree (hugeTree)
 
 data SizeT = Size Int
@@ -385,6 +459,8 @@ layer1 = Deep (Size 50) (Three (Value 'a') (Value 'b') (Value 'c')) layer2 (Two 
 
 hugeTree : FingerTree SizeT (ValueT Char)
 hugeTree = layer1                     
+
+-}
 
 -- To TEST: 
 {-show (viewr hugeTree)
