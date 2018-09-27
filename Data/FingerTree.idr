@@ -7,6 +7,18 @@ infixl 5 |>, :>
 data Digit a = One a | Two a a | Three a a a | Four a a a a
 data Node v a = Node3 v a a a | Node2 v a a 
 
+-- | A representation of a sequence of values of type @a@, allowing
+-- access to the ends in constant time, and append and split in time
+-- logarithmic in the size of the smaller piece.
+--
+-- The collection is also parameterized by a measure type @v@, which
+-- is used to specify a position in the sequence for the 'split' operation.
+-- The types of the operations enforce the constraint @'Measured' v a@,
+-- which also implies that the type @v@ is determined by @a@.
+--
+-- A variety of abstract data types can be implemented by using different
+-- element types and measurements.
+
 data FingerTree v a 
   = Empty 
   | Single a
@@ -15,14 +27,7 @@ data FingerTree v a
     (Digit a)                  -- prefix
     (FingerTree v (Node v a))  -- deeper
     (Digit a)                  -- suffix
-
-||| can data type and it's constructor have the same name? View instead of ViewEl
--- data View v a = Nil | ViewEl a (FingerTree v a)
-
-{-data ViewL s a
-    = EmptyL        -- ^ empty sequence
-    | LeftEl a  (FingerTree v a)      -- ^ leftmost element and the rest of the sequence
--}   
+   
 -- | View of the right end of a sequence.
 data ViewR : (s : Type -> Type) -> (a: Type) -> Type where
     EmptyR : ViewR s a                -- ^ empty sequence
@@ -39,9 +44,15 @@ data ViewL : (s : Type -> Type) -> (a: Type) -> Type where
 (Show (s a), Show a) => Show (ViewL s a) where
     show EmptyL = "EmptyL"
     show (a :< tree) = show a ++ " :< " ++ show tree
-    
-||| There is no `deriving` mechanism in idris, let's write Show instances for all tree elements
 
+(Functor s) => Functor (ViewL s) where
+    map _ EmptyL    = EmptyL
+    map f (x :< xs) = f x :< map f xs
+
+(Functor s) => Functor (ViewR s) where
+    map _ EmptyR    = EmptyR
+    map f (xs :> x) = map f xs :> f x    
+            
 Show a => Show (Digit a) where
   show (One x) = "One " ++ (show x)
   show (Two x y) = "Two " ++ (show x) ++ " " ++ (show y)
@@ -49,29 +60,35 @@ Show a => Show (Digit a) where
   show (Four x y z w) = "Four " ++ (show x) ++ " " ++ (show y) ++ " " ++ (show z) ++ " " ++ (show w)
   
 (Show a, Show v) => Show (Node v a) where
-  show (Node3 p x y z) = " (Node3 branch-annot: " ++ (show p) ++ " " ++ (show x) ++ " " ++ (show y) ++ " " ++ (show z) ++ ") "
-  show (Node2 p x y) = " (Node2 branch-annot: " ++ (show p) ++ " " ++ (show x) ++ " " ++ (show y) ++ ") "
+  show (Node3 p x y z) = " (Node3 node-annot: " ++ (show p) ++ " " ++ (show x) ++ " " ++ (show y) ++ " " ++ (show z) ++ ") "
+  show (Node2 p x y) = " (Node2 node-annot: " ++ (show p) ++ " " ++ (show x) ++ " " ++ (show y) ++ ") "
   
 (Show a, Show v) => Show (FingerTree v a) where
   show Empty                         = "Empty"
   show (Single x)                    = "Single " ++ show x    
   show (Deep v prefix deeper suffix) = "Deep { annotation = " ++ (show v) ++ ", prefix = " ++ show prefix ++ ", deeper = " ++ show deeper ++ ", suffix = "  ++ show suffix ++ "}" 
-            
+                                    
 ||| Annotations are monoidal: type v is a member of monoid interface ( typeclass in haskell )
 
 interface Monoid v =>  Measured v a where
   measure : a -> v  
+
+mapDigit : (a -> b) -> Digit a -> Digit b
+mapDigit f (One a) = One (f a)
+mapDigit f (Two a b) = Two (f a) (f b)
+mapDigit f (Three a b c) = Three (f a) (f b) (f c)
+mapDigit f (Four a b c d) = Four (f a) (f b) (f c) (f d)
 
 ||| foldr : (a -> b -> b) -> b -> FingerTree v a -> b
 Foldable (Node v) where
  foldr f acc (Node2 _ x y) = f x (f y acc)
  foldr f acc (Node3 _ x y z) = f z $ f y (f z acc)
  
-branch2        :  (Measured v a) => a -> a -> Node v a
-branch2 a b    =   Node2 (measure a <+> measure b) a b
+node2        :  (Measured v a) => a -> a -> Node v a
+node2 a b    =   Node2 (measure a <+> measure b) a b
 
-branch3        :  (Measured v a) => a -> a -> a -> Node v a
-branch3 a b c  =   Node3 (measure a <+> measure b <+> measure c) a b c
+node3        :  (Measured v a) => a -> a -> a -> Node v a
+node3 a b c  =   Node3 (measure a <+> measure b <+> measure c) a b c
  
 Foldable Digit where
  foldr f acc (One x) = f x acc
@@ -79,9 +96,22 @@ Foldable Digit where
  foldr f acc (Three x y z) = f z $ f y (f z acc)
  foldr f acc (Four x y z w) = f x $ f y (f z (f w acc))
 
-||| QUESTION: possible optimization. do we have interface IsList in Idris? 
-||| to make (Digit a) and (Node a) it's instances? 
-||| to use toList and fromList instead of toListDigit and toListNode?
+
+(Measured v a) => Measured v (Digit a) where
+    measure (One x) = measure x 
+    measure (Two x y) = measure x <+> measure y
+    measure (Three x y z) = measure x <+> measure y <+> measure z
+    measure (Four x y z w) = measure x <+> measure y <+> measure z <+> measure w
+
+(Monoid v) => Measured v (Node v a) where
+    measure (Node2 v _ _)    =  v
+    measure (Node3 v _ _ _)  =  v
+
+(Measured v a) => Measured v (FingerTree v a) where
+    measure Empty           =  neutral
+    measure (Single x)      =  measure x
+    measure (Deep v _ _ _)  =  v
+
 
 nodeToDigit : Node v a -> Digit a
 nodeToDigit (Node2 _ a b) = Two a b
@@ -93,60 +123,24 @@ toListDigit (Two x y)      = [x,y]
 toListDigit (Three x y z)  = [x,y,z]
 toListDigit (Four x y z w) = [x,y,z,w]
 
-fromListDigit : List a -> Digit a
-fromListDigit [x] = One x
-fromListDigit [x,y] = Two x y
-fromListDigit [x,y,z] = Three x y z
-fromListDigit [x,y,z,w] = Four x y z w
-||| fromListDigit _ = Error "Digit must be one to four elements"
-
 
 toListNode : Node v a -> List a
 toListNode (Node3 _ a b c) = [a,b,c]
 toListNode (Node2 _ a b)   = [a,b]
 
-fromListNode : Measured v a => List a -> Node v a
-fromListNode [x,y] = Node2 m x y where 
-                                     m = measure x <+> measure y
-fromListNode [x,y,z] = Node3 m x y z where 
-                                     m = (measure x <+> measure y) <+> measure z
-|||fromList _ = Error "Node must contain 2 or three elements"                                                          
-
-affixPrepend : a -> Digit a -> Digit a
-affixPrepend x aff = fromListDigit $ x :: (toListDigit aff)
-
-affixAppend : a -> Digit a -> Digit a               
-affixAppend x aff = fromListDigit $ (toListDigit aff) ++ [x]
- 
-annotation : (Measured v a) => FingerTree v a -> v
-annotation Empty          = neutral
-annotation (Single x)     = measure x
-annotation (Deep v _ _ _) =  v
-
-||| Measurements. Making data type (FingerTree v a) an instance of interface Measured
-Measured v a => Measured v (FingerTree v a) where    
- measure Empty      = neutral
- measure (Single x) = measure x
- measure tree       = annotation tree
- 
-Measured v a => Measured v (Digit a) where
- measure = mconcat . map measure . toListDigit where
-                                                mconcat : List v -> v
-                                                mconcat = foldr (<+>) neutral
-
-Measured v a => Measured v (Node v a) where
- measure (Node2 v _ _)   = v
- measure (Node3 v _ _ _) = v
+deep : (Measured v a) =>
+     Digit a -> FingerTree v (Node v a) -> Digit a -> FingerTree v a
+deep pr m sf =
+    Deep ((measure pr <+>  measure m) <+> measure sf) pr m sf
 
 ||| Convert an affix into an entire tree, doing rebalancing if nesassary
-digitToTree : Measured v a => Digit a -> FingerTree v a
-digitToTree affix = case (toListDigit affix) of
- [x]       => Single x
- [x,y]     => Deep (measure affix) (One x) Empty (One y)
- [x,y,z]   => Deep (measure affix) (One x) Empty (Two y z)
- [x,y,z,w] => Deep (measure affix) (Two x y) Empty (Two z w)
+digitToTree : (Measured v a) => Digit a -> FingerTree v a
+digitToTree (One a) = Single a
+digitToTree (Two a b) = deep (One a) Empty (One b)
+digitToTree (Three a b c) = deep (Two a b) Empty (One c)
+digitToTree (Four a b c d) = deep (Two a b) Empty (Two c d)
 
-
+||| Analyze the left end of sequence
 lheadDigit : Digit a -> a
 lheadDigit (One a) = a
 lheadDigit (Two a _) = a
@@ -171,77 +165,36 @@ mutual
   viewl (Deep _ (One x) m sf)     =  (:<) x (rotL m sf)
   viewl (Deep _ pr m sf)          =  (:<) (lheadDigit pr) (deep (ltailDigit pr) m sf)
 
+-- | /O(1)/. Analyse the right end of a sequence.
+
+rheadDigit : Digit a -> a
+rheadDigit (One a) = a
+rheadDigit (Two _ b) = b
+rheadDigit (Three _ _ c) = c
+rheadDigit (Four _ _ _ d) = d
+
+rtailDigit : Digit a -> Digit a
+rtailDigit (One z) = One z
+rtailDigit (Two a _) = One a
+rtailDigit (Three a b _) = Two a b
+rtailDigit (Four a b c _) = Three a b c
+
+mutual
+  viewr : (Measured v a) => FingerTree v a -> ViewR (FingerTree v) a
+  viewr Empty                     =  EmptyR
+  viewr (Single x)                =  Empty :> x
+  viewr (Deep _ pr m (One x))     =  rotR pr m :> x
+  viewr (Deep _ pr m sf)          =  deep pr m (rtailDigit sf) :> rheadDigit sf
+
+  rotR : (Measured v a) => Digit a -> FingerTree v (Node v a) -> FingerTree v a
+  rotR pr m = case viewr m of
+               EmptyR  =>  digitToTree pr
+               m' :> a =>  Deep (measure pr <+> measure m) pr m' (nodeToDigit a)
 
 
-||| Analyze the right end of sequence
-{-viewr : (Measured v a) => FingerTree v a -> View v a
-viewr Empty = Nil
-viewr (Single x) = ViewEl x Empty
-viewr (Deep _ prefix deeper (One x)) = ViewEl x $
- case viewr deeper of 
-  ViewEl node rest' => 
-   let suff  = fromListDigit $ toListNode node
-       annot = (measure prefix <+> measure rest') <+> measure suff in
-   Deep annot prefix rest' suff
-  Nil               => affixToTree prefix
-viewr (Deep _ prefix deeper suffix) = 
- ViewEl suffixLast $ Deep annot prefix deeper suffixInit 
- where   
-   annot           = (measure prefix <+> measure deeper) <+> measure suffixInit
-   suffixLast      = case last' (toListDigit suffix) of 
-                        Just t => t
-   suffixInit      = fromListDigit xs  
-                     where 
-                        xs = case init' $ toListDigit suffix of
-                               Just z => z
-                                                                
-   
-
-||| Analyze the left end of sequence
-viewl : Measured v a => FingerTree v a -> View v a
-viewl Empty = Nil
-viewl (Single x) = ViewEl x Empty
-viewl (Deep _ (One x) deeper suffix) = ViewEl x $
- case viewl deeper of 
-  ViewEl node rest' => 
-   let pref  = fromListDigit $ toListNode node
-       annot = (measure pref <+> measure rest') <+> measure suffix in
-   Deep annot pref rest' suffix
-  Nil               => affixToTree suffix
-viewl (Deep _ prefix deeper suffix) = 
- ViewEl prefixLast $ Deep annot prefixInit deeper suffix
- where   
-   annot           = (measure prefixInit <+> measure deeper) <+> measure suffix
-   prefixLast      = case last' (toListDigit prefix) of 
-                        Just t => t
-   prefixInit      = fromListDigit xs  
-                     where 
-                        xs = case init' $ toListDigit prefix of
-                               Just z => z
-|||? what about Nothing? here and in other cases abowe?
--}
 
 
-||| the deep function creates `Deep` fingertrees
-deep : Measured v a => List a -> FingerTree v (Node v a) -> List a -> FingerTree v a
-deep {v} prefix deeper suffix = 
-  case (prefix,suffix) of
-    ([],[]) => case viewl deeper of 
-      Nil                 => Empty
-      ViewEl node deeper' => deep (toListNode node) deeper' [] 
-    ([],_)  => case viewr deeper of 
-      Nil                 => affixToTree $ fromListDigit suffix  
-      ViewEl node deeper' => deep (toListNode node) deeper' suffix
-    (_,[])  => case viewr deeper of 
-      Nil                 => affixToTree $ fromListDigit prefix
-      ViewEl node deeper' => deep prefix deeper' (toListNode node)
-    _                     => Deep annotat (fromListDigit prefix) deeper (fromListDigit suffix)
-  where
-     annotat : v
-     annotat = concat (map measure prefix) <+> measure deeper <+> concat (map measure suffix)
 
-||| if ((length prefix) > 4) || ((length suffix) > 4)
-|||            then error "Digites can not be longer than 4 elem"            
 
 ||| CONSTRUCTION
 
@@ -257,30 +210,18 @@ singleton = Single
 null : FingerTree v a -> Bool
 null Empty = True
 null _     = False 
-          
+        
 
 ||| Create a sequence from a finite list of elements
 |||fromList : Measured v a => List a -> FingerTree v a
 |||fromList = foldr (<|) Empty
 
 ||| Create a list from a sequence 
-toList : Measured v a => FingerTree v a -> List a
+{-toList : Measured v a => FingerTree v a -> List a
 toList tree = case viewl tree of 
                 Nil => []
                 ViewEl x tree' => x :: toList tree'          
-
-
--- PROBLEM can't implement Eq and Ord  due to `possibly not total error`
-{-
-(Eq a, Measured v a) => Eq (FingerTree v a) where
-    xs == ys = (FingerTree.toList xs == FingerTree.toList ys)
-
-
-(Eq (FingerTree v a) , Ord a, Measured v a) => Ord (FingerTree v a) where
-    compare xs ys = compare (FingerTree.toList xs) (FingerTree.toList ys)                          
-    
--}        
-                
+ -}         
                                                                                           
 ||| Add an element to the left end of sequence
 (<|) : Measured v a => a -> FingerTree v a -> FingerTree v a
@@ -302,76 +243,174 @@ Empty |> x      = Single x
 (Deep w pref deeper (Two a1 a2)) |> x = Deep (w <+> measure x) pref deeper (Three a1 a2 x)
 (Deep w pref deeper (One a1)) |> x = Deep (w <+> measure x) pref deeper (Two a1 x)
 
-||| Concatenate two sequences
 
-nodes : Measured v a => List a -> List (Node v a)
-nodes xs = case xs of 
-   [x,y]      => [Node2 ((measure x) <+> (measure y)) x y]
-   [x,y,z]    => [Node3 ((measure x) <+> (measure y) <+> measure z) x y z]
-   x::y::rest => (Node2 ((measure x) <+> (measure y)) x y) :: nodes rest
+----------------
+-- Concatenation
+----------------
 
-getPrefix : FingerTree v a -> Digit a
-getPrefix (Deep _ prefix _ _) = prefix
+mutual
+  appendTree0 : (Measured v a) => FingerTree v a -> FingerTree v a -> FingerTree v a
+  appendTree0 Empty xs = xs
+  appendTree0 xs Empty = xs
+  appendTree0 (Single x) xs = x <| xs
+  appendTree0 xs (Single x) = xs |> x
+  appendTree0 (Deep _ pr1 m1 sf1) (Deep _ pr2 m2 sf2) = deep pr1 (addDigits0 m1 sf1 pr2 m2) sf2
 
-getSuffix : FingerTree v a -> Digit a
-getSuffix (Deep _ _ _ suffix) = suffix
+  addDigits0 : (Measured v a) => FingerTree v (Node v a) -> Digit a -> Digit a -> FingerTree v (Node v a) -> FingerTree v (Node v a)
+  addDigits0 m1 (One a) (One b) m2 = appendTree1 m1 (node2 a b) m2
+  addDigits0 m1 (One a) (Two b c) m2 = appendTree1 m1 (node3 a b c) m2
+  addDigits0 m1 (One a) (Three b c d) m2 = appendTree2 m1 (node2 a b) (node2 c d) m2
+  addDigits0 m1 (One a) (Four b c d e) m2 = appendTree2 m1 (node3 a b c) (node2 d e) m2
+  addDigits0 m1 (Two a b) (One c) m2 = appendTree1 m1 (node3 a b c) m2
+  addDigits0 m1 (Two a b) (Two c d) m2 = appendTree2 m1 (node2 a b) (node2 c d) m2
+  addDigits0 m1 (Two a b) (Three c d e) m2 = appendTree2 m1 (node3 a b c) (node2 d e) m2
+  addDigits0 m1 (Two a b) (Four c d e f) m2 = appendTree2 m1 (node3 a b c) (node3 d e f) m2
+  addDigits0 m1 (Three a b c) (One d) m2 = appendTree2 m1 (node2 a b) (node2 c d) m2
+  addDigits0 m1 (Three a b c) (Two d e) m2 = appendTree2 m1 (node3 a b c) (node2 d e) m2
+  addDigits0 m1 (Three a b c) (Three d e f) m2 = appendTree2 m1 (node3 a b c) (node3 d e f) m2
+  addDigits0 m1 (Three a b c) (Four d e f g) m2 = appendTree3 m1 (node3 a b c) (node2 d e) (node2 f g) m2
+  addDigits0 m1 (Four a b c d) (One e) m2 = appendTree2 m1 (node3 a b c) (node2 d e) m2
+  addDigits0 m1 (Four a b c d) (Two e f) m2 = appendTree2 m1 (node3 a b c) (node3 d e f) m2
+  addDigits0 m1 (Four a b c d) (Three e f g) m2 = appendTree3 m1 (node3 a b c) (node2 d e) (node2 f g) m2
+  addDigits0 m1 (Four a b c d) (Four e f g h) m2 = appendTree3 m1 (node3 a b c) (node3 d e f) (node2 g h) m2
 
-getDeeper : FingerTree v a -> FingerTree v (Node v a)
-getDeeper (Deep _ _ deeper _) = deeper
+  appendTree1 : (Measured v a) => FingerTree v a -> a -> FingerTree v a -> FingerTree v a
+  appendTree1 Empty a xs = a <| xs
+  appendTree1 xs a Empty = xs |> a
+  appendTree1 (Single x) a xs = x <| a <| xs
+  appendTree1 xs a (Single x) = xs |> a |> x
+  appendTree1 (Deep _ pr1 m1 sf1) a (Deep _ pr2 m2 sf2) = deep pr1 (addDigits1 m1 sf1 a pr2 m2) sf2
 
-||| Possible ala-Idris improvement: 
-||| FingerTree v a -> List a -> FingerTree w a -> FingerTree (v <+> m <+> (foldr (<+>) neutral (map measure (List a)))) a
-concatWithMiddle : Measured v a => FingerTree v a -> List a -> FingerTree v a -> FingerTree v a
-concatWithMiddle Empty      []      right = right
-concatWithMiddle Empty      (x::xs) right = x <| concatWithMiddle Empty xs right
-concatWithMiddle (Single y) xs      right = y <| concatWithMiddle Empty xs right
+  addDigits1 : (Measured v a) => FingerTree v (Node v a) -> Digit a -> a -> Digit a -> FingerTree v (Node v a) -> FingerTree v (Node v a)
+  addDigits1 m1 (One a) b (One c) m2 = appendTree1 m1 (node3 a b c) m2
+  addDigits1 m1 (One a) b (Two c d) m2 = appendTree2 m1 (node2 a b) (node2 c d) m2
+  addDigits1 m1 (One a) b (Three c d e) m2 = appendTree2 m1 (node3 a b c) (node2 d e) m2
+  addDigits1 m1 (One a) b (Four c d e f) m2 = appendTree2 m1 (node3 a b c) (node3 d e f) m2
+  addDigits1 m1 (Two a b) c (One d) m2 = appendTree2 m1 (node2 a b) (node2 c d) m2
+  addDigits1 m1 (Two a b) c (Two d e) m2 = appendTree2 m1 (node3 a b c) (node2 d e) m2
+  addDigits1 m1 (Two a b) c (Three d e f) m2 = appendTree2 m1 (node3 a b c) (node3 d e f) m2
+  addDigits1 m1 (Two a b) c (Four d e f g) m2 = appendTree3 m1 (node3 a b c) (node2 d e) (node2 f g) m2
+  addDigits1 m1 (Three a b c) d (One e) m2 = appendTree2 m1 (node3 a b c) (node2 d e) m2
+  addDigits1 m1 (Three a b c) d (Two e f) m2 = appendTree2 m1 (node3 a b c) (node3 d e f) m2
+  addDigits1 m1 (Three a b c) d (Three e f g) m2 = appendTree3 m1 (node3 a b c) (node2 d e) (node2 f g) m2
+  addDigits1 m1 (Three a b c) d (Four e f g h) m2 = appendTree3 m1 (node3 a b c) (node3 d e f) (node2 g h) m2
+  addDigits1 m1 (Four a b c d) e (One f) m2 = appendTree2 m1 (node3 a b c) (node3 d e f) m2
+  addDigits1 m1 (Four a b c d) e (Two f g) m2 = appendTree3 m1 (node3 a b c) (node2 d e) (node2 f g) m2
+  addDigits1 m1 (Four a b c d) e (Three f g h) m2 = appendTree3 m1 (node3 a b c) (node3 d e f) (node2 g h) m2
+  addDigits1 m1 (Four a b c d) e (Four f g h i) m2 = appendTree3 m1 (node3 a b c) (node3 d e f) (node3 g h i) m2
 
-concatWithMiddle left [] Empty      = left
-concatWithMiddle left xs Empty      = concatWithMiddle left initialList Empty |> lastList
-                                      where
-                                              initialList = case init' xs of 
-                                                                  Just w => w
-                                              lastList    = case last' xs of
-                                                                  Just p => p
-concatWithMiddle left xs (Single y) = concatWithMiddle left xs Empty |> y 
+  appendTree2 : (Measured v a) => FingerTree v a -> a -> a -> FingerTree v a -> FingerTree v a
+  appendTree2 Empty a b xs = a <| b <| xs
+  appendTree2 xs a b Empty = xs |> a |> b
+  appendTree2 (Single x) a b xs = x <| a <| b <| xs
+  appendTree2 xs a b (Single x) = xs |> a |> b |> x
+  appendTree2 (Deep _ pr1 m1 sf1) a b (Deep _ pr2 m2 sf2) = deep pr1 (addDigits2 m1 sf1 a b pr2 m2) sf2
 
--- recursive case: both trees are deep
-concatWithMiddle left mid right = Deep annot (getPrefix left) deeper' (getSuffix right) 
-                                  where
-                                     deeper' = concatWithMiddle (getDeeper left) mid' (getDeeper right)
-                                     where 
-                                        mid' = nodes $ (toListDigit $ getSuffix left) ++ mid ++ (toListDigit $ getPrefix right)    
-                                     annot = annotation left <+> annotation right <+> foldr (<+>) neutral (map measure mid)
+  addDigits2 : (Measured v a) => FingerTree v (Node v a) -> Digit a -> a -> a -> Digit a -> FingerTree v (Node v a) -> FingerTree v (Node v a)
+  addDigits2 m1 (One a) b c (One d) m2 = appendTree2 m1 (node2 a b) (node2 c d) m2
+  addDigits2 m1 (One a) b c (Two d e) m2 = appendTree2 m1 (node3 a b c) (node2 d e) m2
+  addDigits2 m1 (One a) b c (Three d e f) m2 = appendTree2 m1 (node3 a b c) (node3 d e f) m2
+  addDigits2 m1 (One a) b c (Four d e f g) m2 = appendTree3 m1 (node3 a b c) (node2 d e) (node2 f g) m2
+  addDigits2 m1 (Two a b) c d (One e) m2 = appendTree2 m1 (node3 a b c) (node2 d e) m2
+  addDigits2 m1 (Two a b) c d (Two e f) m2 = appendTree2 m1 (node3 a b c) (node3 d e f) m2
+  addDigits2 m1 (Two a b) c d (Three e f g) m2 = appendTree3 m1 (node3 a b c) (node2 d e) (node2 f g) m2
+  addDigits2 m1 (Two a b) c d (Four e f g h) m2 = appendTree3 m1 (node3 a b c) (node3 d e f) (node2 g h) m2
+  addDigits2 m1 (Three a b c) d e (One f) m2 = appendTree2 m1 (node3 a b c) (node3 d e f) m2
+  addDigits2 m1 (Three a b c) d e (Two f g) m2 = appendTree3 m1 (node3 a b c) (node2 d e) (node2 f g) m2
+  addDigits2 m1 (Three a b c) d e (Three f g h) m2 = appendTree3 m1 (node3 a b c) (node3 d e f) (node2 g h) m2
+  addDigits2 m1 (Three a b c) d e (Four f g h i) m2 = appendTree3 m1 (node3 a b c) (node3 d e f) (node3 g h i) m2
+  addDigits2 m1 (Four a b c d) e f (One g) m2 = appendTree3 m1 (node3 a b c) (node2 d e) (node2 f g) m2
+  addDigits2 m1 (Four a b c d) e f (Two g h) m2 = appendTree3 m1 (node3 a b c) (node3 d e f) (node2 g h) m2
+  addDigits2 m1 (Four a b c d) e f (Three g h i) m2 = appendTree3 m1 (node3 a b c) (node3 d e f) (node3 g h i) m2
+  addDigits2 m1 (Four a b c d) e f (Four g h i j) m2 = appendTree4 m1 (node3 a b c) (node3 d e f) (node2 g h) (node2 i j) m2
 
+  appendTree3 : (Measured v a) => FingerTree v a -> a -> a -> a -> FingerTree v a -> FingerTree v a
+  appendTree3 Empty a b c xs = a <| b <| c <| xs
+  appendTree3 xs a b c Empty = xs |> a |> b |> c
+  appendTree3 (Single x) a b c xs = x <| a <| b <| c <| xs
+  appendTree3 xs a b c (Single x) = xs |> a |> b |> c |> x
+  appendTree3 (Deep _ pr1 m1 sf1) a b c (Deep _ pr2 m2 sf2) = deep pr1 (addDigits3 m1 sf1 a b c pr2 m2) sf2
 
-(><) : Measured v a => FingerTree v a -> FingerTree v a -> FingerTree v a
-left >< right = concatWithMiddle left [] right 
+  addDigits3 : (Measured v a) => FingerTree v (Node v a) -> Digit a -> a -> a -> a -> Digit a -> FingerTree v (Node v a) -> FingerTree v (Node v a)
+  addDigits3 m1 (One a) b c d (One e) m2 = appendTree2 m1 (node3 a b c) (node2 d e) m2
+  addDigits3 m1 (One a) b c d (Two e f) m2 = appendTree2 m1 (node3 a b c) (node3 d e f) m2
+  addDigits3 m1 (One a) b c d (Three e f g) m2 = appendTree3 m1 (node3 a b c) (node2 d e) (node2 f g) m2
+  addDigits3 m1 (One a) b c d (Four e f g h) m2 = appendTree3 m1 (node3 a b c) (node3 d e f) (node2 g h) m2
+  addDigits3 m1 (Two a b) c d e (One f) m2 = appendTree2 m1 (node3 a b c) (node3 d e f) m2
+  addDigits3 m1 (Two a b) c d e (Two f g) m2 = appendTree3 m1 (node3 a b c) (node2 d e) (node2 f g) m2
+  addDigits3 m1 (Two a b) c d e (Three f g h) m2 = appendTree3 m1 (node3 a b c) (node3 d e f) (node2 g h) m2
+  addDigits3 m1 (Two a b) c d e (Four f g h i) m2 = appendTree3 m1 (node3 a b c) (node3 d e f) (node3 g h i) m2
+  addDigits3 m1 (Three a b c) d e f (One g) m2 = appendTree3 m1 (node3 a b c) (node2 d e) (node2 f g) m2
+  addDigits3 m1 (Three a b c) d e f (Two g h) m2 = appendTree3 m1 (node3 a b c) (node3 d e f) (node2 g h) m2
+  addDigits3 m1 (Three a b c) d e f (Three g h i) m2 = appendTree3 m1 (node3 a b c) (node3 d e f) (node3 g h i) m2
+  addDigits3 m1 (Three a b c) d e f (Four g h i j) m2 = appendTree4 m1 (node3 a b c) (node3 d e f) (node2 g h) (node2 i j) m2
+  addDigits3 m1 (Four a b c d) e f g (One h) m2 = appendTree3 m1 (node3 a b c) (node3 d e f) (node2 g h) m2
+  addDigits3 m1 (Four a b c d) e f g (Two h i) m2 = appendTree3 m1 (node3 a b c) (node3 d e f) (node3 g h i) m2
+  addDigits3 m1 (Four a b c d) e f g (Three h i j) m2 = appendTree4 m1 (node3 a b c) (node3 d e f) (node2 g h) (node2 i j) m2
+  addDigits3 m1 (Four a b c d) e f g (Four h i j k) m2 = appendTree4 m1 (node3 a b c) (node3 d e f) (node3 g h i) (node2 j k) m2
 
-{-
+  appendTree4 : (Measured v a) => FingerTree v a -> a -> a -> a -> a -> FingerTree v a -> FingerTree v a
+  appendTree4 Empty a b c d xs = a <| b <| c <| d <| xs
+  appendTree4 xs a b c d Empty = xs |> a |> b |> c |> d
+  appendTree4 (Single x) a b c d xs = x <| a <| b <| c <| d <| xs
+  appendTree4 xs a b c d (Single x) = xs |> a |> b |> c |> d |> x
+  appendTree4 (Deep _ pr1 m1 sf1) a b c d (Deep _ pr2 m2 sf2) = deep pr1 (addDigits4 m1 sf1 a b c d pr2 m2) sf2
+
+  addDigits4 : (Measured v a) => FingerTree v (Node v a) -> Digit a -> a -> a -> a -> a -> Digit a -> FingerTree v (Node v a) -> FingerTree v (Node v a)
+  addDigits4 m1 (One a) b c d e (One f) m2 = appendTree2 m1 (node3 a b c) (node3 d e f) m2
+  addDigits4 m1 (One a) b c d e (Two f g) m2 = appendTree3 m1 (node3 a b c) (node2 d e) (node2 f g) m2
+  addDigits4 m1 (One a) b c d e (Three f g h) m2 = appendTree3 m1 (node3 a b c) (node3 d e f) (node2 g h) m2
+  addDigits4 m1 (One a) b c d e (Four f g h i) m2 = appendTree3 m1 (node3 a b c) (node3 d e f) (node3 g h i) m2
+  addDigits4 m1 (Two a b) c d e f (One g) m2 = appendTree3 m1 (node3 a b c) (node2 d e) (node2 f g) m2
+  addDigits4 m1 (Two a b) c d e f (Two g h) m2 = appendTree3 m1 (node3 a b c) (node3 d e f) (node2 g h) m2
+  addDigits4 m1 (Two a b) c d e f (Three g h i) m2 = appendTree3 m1 (node3 a b c) (node3 d e f) (node3 g h i) m2
+  addDigits4 m1 (Two a b) c d e f (Four g h i j) m2 = appendTree4 m1 (node3 a b c) (node3 d e f) (node2 g h) (node2 i j) m2
+  addDigits4 m1 (Three a b c) d e f g (One h) m2 = appendTree3 m1 (node3 a b c) (node3 d e f) (node2 g h) m2
+  addDigits4 m1 (Three a b c) d e f g (Two h i) m2 = appendTree3 m1 (node3 a b c) (node3 d e f) (node3 g h i) m2
+  addDigits4 m1 (Three a b c) d e f g (Three h i j) m2 = appendTree4 m1 (node3 a b c) (node3 d e f) (node2 g h) (node2 i j) m2
+  addDigits4 m1 (Three a b c) d e f g (Four h i j k) m2 = appendTree4 m1 (node3 a b c) (node3 d e f) (node3 g h i) (node2 j k) m2
+  addDigits4 m1 (Four a b c d) e f g h (One i) m2 = appendTree3 m1 (node3 a b c) (node3 d e f) (node3 g h i) m2
+  addDigits4 m1 (Four a b c d) e f g h (Two i j) m2 = appendTree4 m1 (node3 a b c) (node3 d e f) (node2 g h) (node2 i j) m2
+  addDigits4 m1 (Four a b c d) e f g h (Three i j k) m2 = appendTree4 m1 (node3 a b c) (node3 d e f) (node3 g h i) (node2 j k) m2
+  addDigits4 m1 (Four a b c d) e f g h (Four i j k l) m2 = appendTree4 m1 (node3 a b c) (node3 d e f) (node3 g h i) (node3 j k l) m2
+  
+-- | /O(log(min(n1,n2)))/. Concatenate two sequences.
+(><) : (Measured v a) => FingerTree v a -> FingerTree v a -> FingerTree v a
+(><) =  appendTree0
 
 (Measured v a) => Semigroup (FingerTree v a) where
   (<+>) = (><)
 
 Semigroup (FingerTree v a) => Monoid (FingerTree v a) where
     neutral = Empty
--}
-
-{-Foldable (FingerTree v) where
+{-
+Foldable (FingerTree v) where
   foldr f acc Empty                          = acc
   foldr f acc (Single x)                     = f x acc
   foldr {v} f acc (Deep _ pref deep suff) = foldr f foldedDeeper pref where
     ||| foldr : (a -> b -> b) -> b -> FingerTree v a -> b
     foldMap : (a -> b -> b) -> b -> FingerTree v a -> b
-    foldMap f = foldr f neutral
-    foldedDeeper = foldr (f . foldMap f) foldedSuffix deep
+    foldMap f t  = foldr f neutral t
     foldedSuffix = foldr f acc suff
+    foldedDeeper = foldr (f . foldMap f) foldedSuffix deep
+
+
+-- Foldable (FingerTree v) required
+(Eq a) => Eq (FingerTree v a) where
+    xs == ys = toList xs == toList ys
+
+-- | Lexicographical order from left to right.
+(Ord a) => Ord (FingerTree v a) where
+    compare xs ys = compare (toList xs) (toList ys)
 -}
+
+
 ||| Transformations
 -- | /O(n)/. The reverse of a sequence.
 
 reverseNode : (Measured v2 a2) => (a1 -> a2) -> Node v1 a1 -> Node v2 a2
-reverseNode f (Node2 _ a b) = branch2 (f b) (f a)
-reverseNode f (Node3 _ a b c) = branch3 (f c) (f b) (f a)
+reverseNode f (Node2 _ a b) = node2 (f b) (f a)
+reverseNode f (Node3 _ a b c) = node3 (f c) (f b) (f a)
 
 reverseDigit : (a -> b) -> Digit a -> Digit b
 reverseDigit f (One a) = One (f a)
@@ -383,7 +422,7 @@ reverseTree : (Measured v2 a2) => (a1 -> a2) -> FingerTree v1 a1 -> FingerTree v
 reverseTree _ Empty = Empty
 reverseTree f (Single x) = Single (f x)
 reverseTree f (Deep _ pr m sf) =
-    deep (toListDigit (reverseDigit f sf)) (reverseTree (reverseNode f) m) (toListDigit (reverseDigit f pr))
+    deep (reverseDigit f sf) (reverseTree (reverseNode f) m) (reverseDigit f pr)
 
 reverse : (Measured v a) => FingerTree v a -> FingerTree v a
 reverse = reverseTree id
