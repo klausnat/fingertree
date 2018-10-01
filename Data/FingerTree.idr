@@ -1,5 +1,7 @@
 module FingerTree 
 
+%default total
+
 infixr 5 ><
 infixr 5 <|, :<
 infixl 5 |>, :>
@@ -191,12 +193,7 @@ mutual
                EmptyR  =>  digitToTree pr
                m' :> a =>  Deep (measure pr <+> measure m) pr m' (nodeToDigit a)
 
-
-
-
-
-
-||| CONSTRUCTION
+||| Construction, deconstruction and concatenation
 
 ||| The empty sequence
 empty : Measured v a => FingerTree v a
@@ -211,18 +208,6 @@ null : FingerTree v a -> Bool
 null Empty = True
 null _     = False 
         
-
-||| Create a sequence from a finite list of elements
-|||fromList : Measured v a => List a -> FingerTree v a
-|||fromList = foldr (<|) Empty
-
-||| Create a list from a sequence 
-{-toList : Measured v a => FingerTree v a -> List a
-toList tree = case viewl tree of 
-                Nil => []
-                ViewEl x tree' => x :: toList tree'          
- -}         
-                                                                                          
 ||| Add an element to the left end of sequence
 (<|) : Measured v a => a -> FingerTree v a -> FingerTree v a
 x <| Empty      = Single x
@@ -243,6 +228,10 @@ Empty |> x      = Single x
 (Deep w pref deeper (Two a1 a2)) |> x = Deep (w <+> measure x) pref deeper (Three a1 a2 x)
 (Deep w pref deeper (One a1)) |> x = Deep (w <+> measure x) pref deeper (Two a1 x)
 
+-- | /O(n)/. Create a sequence from a finite list of elements.
+-- The opposite operation 'toList' is supplied by the 'Foldable' instance.
+fromList : (Measured v a) => List a -> FingerTree v a
+fromList = foldr (<|) Empty
 
 ----------------
 -- Concatenation
@@ -381,21 +370,24 @@ mutual
 (Measured v a) => Semigroup (FingerTree v a) where
   (<+>) = (><)
 
-Semigroup (FingerTree v a) => Monoid (FingerTree v a) where
+(Semigroup (FingerTree v a)) => Monoid (FingerTree v a) where
     neutral = Empty
-{-
+
+
+--foldr : (a -> b -> b) -> b -> FingerTree v a -> b
+
 Foldable (FingerTree v) where
   foldr f acc Empty                          = acc
   foldr f acc (Single x)                     = f x acc
-  foldr {v} f acc (Deep _ pref deep suff) = foldr f foldedDeeper pref where
-    ||| foldr : (a -> b -> b) -> b -> FingerTree v a -> b
-    foldMap : (a -> b -> b) -> b -> FingerTree v a -> b
-    foldMap f t  = foldr f neutral t
-    foldedSuffix = foldr f acc suff
-    foldedDeeper = foldr (f . foldMap f) foldedSuffix deep
+  foldr {v} f acc (Deep _ pref deep suff) = foldr f (foldr (flip $ foldr f) (foldr f acc suff) deep) pref 
+--    where
+--      func = ??
+
+-- но deep может состоять из prefix deeper suffix, для афиксов не бывает neutral       
 
 
 -- Foldable (FingerTree v) required
+{-
 (Eq a) => Eq (FingerTree v a) where
     xs == ys = toList xs == toList ys
 
@@ -455,8 +447,8 @@ data SearchResult v a
    show OnLeft = "OnLeft"
    show OnRight = "OnRight"
    show Nowhere = "Nowhere"      
-
-{- PROBLEM: cant implement due to `possibly not total error`, see Ord, Eq (FingerTree v a)
+{-
+-- PROBLEM: cant implement due to `possibly not total error`, see Ord, Eq (FingerTree v a)
 (Eq (FingerTree v a), Eq a) => Eq (SearchResult v a) where
   (==) OnLeft OnLeft   = True
   (==) OnLeft _        = False
@@ -477,8 +469,8 @@ data SearchResult v a
                                                            else False
   (==) (Position tree1 e tree2) _      = False
   (==) (Position tree1 e tree2) _      = False
--}  
-  
+
+  -}
 {-Ord (SearchResult v a) where
   compare                                                                                            
   -}                                                                           
