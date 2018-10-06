@@ -25,35 +25,35 @@ data FingerTree v a
   = Empty 
   | Single a
   | Deep 
-    v                          -- annotation
-    (Digit a)                  -- prefix
-    (FingerTree v (Node v a))  -- deeper
-    (Digit a)                  -- suffix
+  v                          -- annotation
+  (Digit a)                  -- prefix
+  (FingerTree v (Node v a))  -- deeper
+  (Digit a)                  -- suffix
    
 -- | View of the right end of a sequence.
 data ViewR : (s : Type -> Type) -> (a: Type) -> Type where
-    EmptyR : ViewR s a                -- ^ empty sequence
-    (:>) : (s a) -> a -> ViewR s a    -- ^ the sequence minus the rightmost element,
+  EmptyR : ViewR s a                -- ^ empty sequence
+  (:>) : (s a) -> a -> ViewR s a    -- ^ the sequence minus the rightmost element,
                                       -- and the rightmost element
 (Show (s a), Show a) => Show (ViewR s a) where
-    show EmptyR = "EmptyR"
-    show (tree :> a) = show tree ++ " :> " ++ show a
+  show EmptyR = "EmptyR"
+  show (tree :> a) = show tree ++ " :> " ++ show a
 
 data ViewL : (s : Type -> Type) -> (a: Type) -> Type where
-    EmptyL : ViewL s a                -- ^ empty sequence
-    (:<) : a -> s a -> ViewL s a    -- ^ the sequence minus the rightmost element,
+  EmptyL : ViewL s a                -- ^ empty sequence
+  (:<) : a -> s a -> ViewL s a    -- ^ the sequence minus the rightmost element,
                                       -- and the rightmost element
 (Show (s a), Show a) => Show (ViewL s a) where
-    show EmptyL = "EmptyL"
-    show (a :< tree) = show a ++ " :< " ++ show tree
+  show EmptyL = "EmptyL"
+  show (a :< tree) = show a ++ " :< " ++ show tree
 
 (Functor s) => Functor (ViewL s) where
-    map _ EmptyL    = EmptyL
-    map f (x :< xs) = f x :< map f xs
+  map _ EmptyL    = EmptyL
+  map f (x :< xs) = f x :< map f xs
 
 (Functor s) => Functor (ViewR s) where
-    map _ EmptyR    = EmptyR
-    map f (xs :> x) = map f xs :> f x    
+  map _ EmptyR    = EmptyR
+  map f (xs :> x) = map f xs :> f x    
             
 Show a => Show (Digit a) where
   show (One x) = "One " ++ (show x)
@@ -380,21 +380,15 @@ Foldable (FingerTree v) where
   foldr f acc Empty                          = acc
   foldr f acc (Single x)                     = f x acc
   foldr {v} f acc (Deep _ pref deep suff) = foldr f (foldr (flip $ foldr f) (foldr f acc suff) deep) pref 
---    where
---      func = ??
-
--- но deep может состоять из prefix deeper suffix, для афиксов не бывает neutral       
 
 
--- Foldable (FingerTree v) required
-{-
 (Eq a) => Eq (FingerTree v a) where
     xs == ys = toList xs == toList ys
 
 -- | Lexicographical order from left to right.
 (Ord a) => Ord (FingerTree v a) where
     compare xs ys = compare (toList xs) (toList ys)
--}
+
 
 
 ||| Transformations
@@ -447,9 +441,16 @@ data SearchResult v a
    show OnLeft = "OnLeft"
    show OnRight = "OnRight"
    show Nowhere = "Nowhere"      
-{-
--- PROBLEM: cant implement due to `possibly not total error`, see Ord, Eq (FingerTree v a)
+
 (Eq (FingerTree v a), Eq a) => Eq (SearchResult v a) where
+  (==) (Position tree1 e tree2) (Position tree3 r tree4) = if ( tree1 == tree3 && 
+                                                                e == r && 
+                                                                tree2 == tree4 ) 
+                                                           then True 
+                                                           else False
+  (==) (Position tree1 e tree2) _      = False
+  (==) _ (Position tree1 e tree2)       = False
+
   (==) OnLeft OnLeft   = True
   (==) OnLeft _        = False
   (==) _      OnLeft   = False
@@ -462,21 +463,229 @@ data SearchResult v a
   (==) Nowhere _        = False
   (==) _       Nowhere  = False
   
-  (==) (Position tree1 e tree2) (Position tree3 r tree4) = if ( tree1 == tree3 && 
-                                                                e == r && 
-                                                                tree2 == tree4 ) 
-                                                           then True 
-                                                           else False
-  (==) (Position tree1 e tree2) _      = False
-  (==) (Position tree1 e tree2) _      = False
+  
 
-  -}
-{-Ord (SearchResult v a) where
-  compare                                                                                            
-  -}                                                                           
+(Ord a, Ord (FingerTree v a)) => Ord (SearchResult v a) where
+   compare (Position t1 e t2) (Position t3 r t4) = if (t1 == t3) && (e == r) && (t2 == t4) then EQ else
+                                                   if (t1 < t3) then LT else
+                                                   if (t1 == t3) && (e < r) then LT else
+                                                   if (t1 == t3) && (e == r) && (t2 < t4) then LT else
+                                                   GT
+   compare (Position t1 e t2) OnLeft             = LT
+   compare (Position t1 e t2) OnRight            = GT
+   compare (Position t1 e t2) Nowhere            = GT
+   
+   compare OnLeft _                              = GT
+   compare OnRight Nowhere                       = GT
+   compare OnRight _                             = LT
+   
+   compare Nowhere _                             = LT
+
+-- | /O(log(min(i,n-i)))/. Search a sequence for a point where a predicate
+-- on splits of the sequence changes from 'False' to 'True'.
+--
+-- The argument @p@ is a relation between the measures of the two
+-- sequences that could be appended together to form the sequence @t@.
+-- If the relation is 'False' at the leftmost split and 'True' at the
+-- rightmost split, i.e.
+--
+-- @not (p 'mempty' ('measure' t)) && p ('measure' t) 'mempty'@
+--
+-- then there must exist an element @x@ in the sequence such that @p@
+-- is 'False' for the split immediately before @x@ and 'True' for the
+-- split just after it:
+--
+-- In this situation, @'search' p t@ returns such an element @x@ and the
+-- pieces @l@ and @r@ of the sequence to its left and right respectively.
+-- That is, it returns @'Position' l x r@ such that
+--
+-- * @l >< (x <| r) = t@
+--
+-- * @not (p (measure l) (measure (x <| r))@
+--
+-- * @p (measure (l |> x)) (measure r)@
+--
+-- For predictable results, one should ensure that there is only one such
+-- point, i.e. that the predicate is /monotonic/ on @t@.
+
+data Splited t a = Split t a t | BadArg
+
+searchNode : (Measured v a) => (v -> v -> Bool) -> v -> Node v a -> v -> Splited (Maybe (Digit a)) a
+searchNode p vl (Node2 _ a b) vr =
+  if ( p va vb)     then Split Nothing a (Just (One b)) 
+  else Split (Just (One a)) b Nothing
+  where
+    va      = vl <+> measure a
+    vb      = measure b <+> vr
+searchNode p vl (Node3 _ a b c) vr =
+  if (p va vbc)    then Split Nothing a (Just (Two b c)) else
+  if ( p vab vc)    then Split (Just (One a)) b (Just (One c)) 
+  else Split (Just (Two a b)) c Nothing
+  where
+    va      = vl <+> measure a
+    vab     = va <+> measure b
+    vc      = measure c <+> vr
+    vbc     = measure b <+> vc
+
+searchDigit : (Measured v a) => (v -> v -> Bool) -> v -> Digit a -> v -> Splited (Maybe (Digit a)) a
+searchDigit _ vl (One a) vr = Split Nothing a Nothing    -- vl `seq` vr `seq` Split Nothing a Nothing
+searchDigit p vl (Two a b) vr = 
+  if (p va vb)     then Split Nothing a (Just (One b))
+  else Split (Just (One a)) b Nothing
+  where
+    va      = vl <+> measure a
+    vb      = measure b <+> vr
+searchDigit p vl (Three a b c) vr = 
+  if (p va vbc)    then Split Nothing a (Just (Two b c))
+  else if (p vab vc)    then Split (Just (One a)) b (Just (One c))
+  else Split (Just (Two a b)) c Nothing
+  where
+    va      = vl <+> measure a
+    vab     = va <+> measure b
+    vbc     = measure b <+> vc
+    vc      = measure c <+> vr
+searchDigit p vl (Four a b c d) vr = 
+  if (p va vbcd)      then Split Nothing a (Just (Three b c d))
+  else if p vab vcd   then Split (Just (One a)) b (Just (Two c d))
+  else if (p vabc vd) then Split (Just (Two a b)) c (Just (One d))
+  else Split (Just (Three a b c)) d Nothing
+  where
+    va      = vl <+> measure a
+    vab     = va <+> measure b
+    vabc    = vab <+> measure c
+    vbcd    = measure b <+> vcd
+    vcd     = measure c <+> vd
+    vd      = measure d <+> vr
+
+deepL : (Measured v a) => Maybe (Digit a) -> FingerTree v (Node v a) -> Digit a -> FingerTree v a
+deepL Nothing m sf      =   rotL m sf
+deepL (Just pr) m sf    =   deep pr m sf
+
+deepR : (Measured v a) => Digit a -> FingerTree v (Node v a) -> Maybe (Digit a) -> FingerTree v a
+deepR pr m Nothing      =   rotR pr m
+deepR pr m (Just sf)    =   deep pr m sf
+
+splitNode : (Measured v a) => (v -> Bool) -> v -> Node v a -> Splited (Maybe (Digit a)) a
+splitNode p i (Node2 _ a b) =
+  if p va        then Split Nothing a (Just (One b))
+  else Split (Just (One a)) b Nothing
+  where
+    va      = i <+> measure a
+splitNode p i (Node3 _ a b c) =
+  if p va        then Split Nothing a (Just (Two b c))
+  else if p vab  then Split (Just (One a)) b (Just (One c))
+  else Split (Just (Two a b)) c Nothing
+  where
+    va      = i <+> measure a
+    vab     = va <+> measure b
+
+splitDigit : (Measured v a) => (v -> Bool) -> v -> Digit a -> Splited (Maybe (Digit a)) a
+splitDigit _ i (One a) = Split Nothing a Nothing
+splitDigit p i (Two a b) = 
+  if p va        then Split Nothing a (Just (One b))
+  else Split (Just (One a)) b Nothing
+  where
+    va      = i <+> measure a
+splitDigit p i (Three a b c) =
+  if p va        then Split Nothing a (Just (Two b c))
+  else if p vab  then Split (Just (One a)) b (Just (One c))
+  else Split (Just (Two a b)) c Nothing
+  where
+    va      = i <+> measure a
+    vab     = va <+> measure b
+splitDigit p i (Four a b c d) =
+  if p va       then Split Nothing a (Just (Three b c d))
+  else if p vab       then Split (Just (One a)) b (Just (Two c d))
+  else if p vabc      then Split (Just (Two a b)) c (Just (One d))
+  else    Split (Just (Three a b c)) d Nothing
+  where
+    va      = i <+> measure a
+    vab     = va <+> measure b
+    vabc    = vab <+> measure c
+
+searchTree : (Measured v a) => (v -> v -> Bool) -> v -> FingerTree v a -> v -> Splited (FingerTree v a) a
+searchTree _ _ Empty _ = BadArg
+searchTree _ _ (Single x) _ = Split Empty x Empty
+searchTree p vl (Deep _ pr m sf) vr =
+  if p vlp vmsr  then  let Split l x r = searchDigit p vl pr vmsr
+                       in  Split (maybe Empty digitToTree l) x (deepL r m sf)
+  else if p vlpm vsr  then  let  Split ml xs mr  =  searchTree p vlp m vsr
+                                 Split l x r     =  searchNode p (vlp <+> measure ml) xs (measure mr <+> vsr)
+                            in   Split (deepR pr  ml l) x (deepL r mr sf)
+  else  let  Split l x r =  searchDigit p vm sf vr
+        in   Split (deepR pr  m  l) x (maybe Empty digitToTree r)
+  where
+    vlp     =  vl <+> measure pr
+    vlpm    =  vlp <+> vm
+    vmsr    =  vm <+> vsr
+    vsr     =  measure sf <+> vr
+    vm      =  measure m
+
+search : (Measured v a) => (v -> v -> Bool) -> FingerTree v a -> SearchResult v a
+search p t = if (p_left && p_right) then OnLeft else
+             if (not p_left) && p_right then case searchTree p neutral t neutral of
+                                                    Split l x r => Position l x r
+             else 
+             if not p_left && not p_right then OnRight 
+             else
+             Nowhere 
+             where
+                        p_left = p neutral (measure t)
+                        p_right = p (measure t) neutral
+                        
+splitTree : (Measured v a) => (v -> Bool) -> v -> FingerTree v a -> Splited (FingerTree v a) a
+splitTree _ _ Empty = BadArg
+splitTree _ _ (Single x) = Split Empty x Empty
+splitTree p i (Deep _ pr m sf) =
+  if (p (i <+> measure pr)) then let  Split l x r     =  splitDigit p i pr
+                                 in   Split (maybe Empty digitToTree l) x (deepL r m sf)
+  else                           
+  if (p ((i <+> measure pr) <+>  measure m)) then let  Split ml xs mr  =  splitTree p (i <+> measure pr) m
+                                                       Split l x r     =  splitNode p ((i <+> measure pr) <+> measure ml) xs
+                                                  in   Split (deepR pr  ml l) x (deepL r mr sf)
+  else                           
+       let Split l x r     =  splitDigit p ((i <+> measure pr) <+>  measure m) sf
+       in  Split (deepR pr  m  l) x (maybe Empty digitToTree r)
+
+||||| STOP HERE
 
 
+-- | /O(log(min(i,n-i)))/. Split a sequence at a point where the predicate
+-- on the accumulated measure of the prefix changes from 'False' to 'True'.
+--
+-- For predictable results, one should ensure that there is only one such
+-- point, i.e. that the predicate is /monotonic/.
+split :  (Measured v a) => (v -> Bool) -> FingerTree v a -> (FingerTree v a, FingerTree v a)
+split _ Empty  =  (Empty, Empty)
+split p xs = 
+  if p (measure xs) then let Split l x r = splitTree p neutral xs 
+                         in (l, x <| r)
+  else     (xs, Empty)
 
+-- | /O(log(min(i,n-i)))/.
+-- Given a monotonic predicate @p@, @'takeUntil' p t@ is the largest
+-- prefix of @t@ whose measure does not satisfy @p@.
+--
+-- *  @'takeUntil' p t = 'fst' ('split' p t)@
+takeUntil : (Measured v a) => (v -> Bool) -> FingerTree v a -> FingerTree v a
+takeUntil p  =  fst . split p
+
+-- | /O(log(min(i,n-i)))/.
+-- Given a monotonic predicate @p@, @'dropUntil' p t@ is the rest of @t@
+-- after removing the largest prefix whose measure does not satisfy @p@.
+--
+-- * @'dropUntil' p t = 'snd' ('split' p t)@
+dropUntil : (Measured v a) => (v -> Bool) -> FingerTree v a -> FingerTree v a
+dropUntil p  =  snd . split p        
+
+-- isSplit :: (Measured v a) => (v -> v -> Bool) -> v -> a -> v -> Bool
+-- isSplit p vl x vr = not (p vl (v <+> vr)) && p (vl <+> v) vr
+--   where v = measure x
+--
+-- property:
+-- isSplit p vl t vr =>
+--    let Split l x r = search t in
+--    isSplit p (vl <+> measure l) x (measure r <+> vr)
 
 {- START TEST TEST TEST START ----------------------------- -}
 
