@@ -508,8 +508,11 @@ data SearchResult v a
 -- For predictable results, one should ensure that there is only one such
 -- point, i.e. that the predicate is /monotonic/ on @t@.
 
-data Splited t a = Split t a t | BadArg
-
+data Splited t a = Split t a t
+data NonEmptyTree : (tree : FingerTree v a) -> Type where
+  SingleTree : NonEmptyTree (Single a)
+  DeepTree : NonEmptyTree (Deep v l m r)
+  
 searchNode : (Measured v a) => (v -> v -> Bool) -> v -> Node v a -> v -> Splited (Maybe (Digit a)) a
 searchNode p vl (Node2 _ a b) vr =
   if ( p va vb)     then Split Nothing a (Just (One b)) 
@@ -603,8 +606,7 @@ splitDigit p i (Four a b c d) =
     vab     = va <+> measure b
     vabc    = vab <+> measure c
 
-searchTree : (Measured v a) => (v -> v -> Bool) -> v -> FingerTree v a -> v -> Splited (FingerTree v a) a
-searchTree _ _ Empty _ = BadArg
+searchTree : (Measured v a) => (v -> v -> Bool) -> v -> (t : FingerTree v a) -> {auto ok : NonEmptyTree t} -> v -> Splited (FingerTree v a) a
 searchTree _ _ (Single x) _ = Split Empty x Empty
 searchTree p vl (Deep _ pr m sf) vr =
   if p vlp vmsr  then  let Split l x r = searchDigit p vl pr vmsr
@@ -633,8 +635,7 @@ search p t = if (p_left && p_right) then OnLeft else
                         p_left = p neutral (measure t)
                         p_right = p (measure t) neutral
                         
-splitTree : (Measured v a) => (v -> Bool) -> v -> FingerTree v a -> Splited (FingerTree v a) a
-splitTree _ _ Empty = BadArg
+splitTree : (Measured v a) => (v -> Bool) -> v -> (t : FingerTree v a) -> {auto ok : NonEmptyTree t} -> Splited (FingerTree v a) a
 splitTree _ _ (Single x) = Split Empty x Empty
 splitTree p i (Deep _ pr m sf) =
   if (p (i <+> measure pr)) then let  Split l x r     =  splitDigit p i pr
@@ -646,9 +647,6 @@ splitTree p i (Deep _ pr m sf) =
   else                           
        let Split l x r     =  splitDigit p ((i <+> measure pr) <+>  measure m) sf
        in  Split (deepR pr  m  l) x (maybe Empty digitToTree r)
-
-||||| STOP HERE
-
 
 -- | /O(log(min(i,n-i)))/. Split a sequence at a point where the predicate
 -- on the accumulated measure of the prefix changes from 'False' to 'True'.
