@@ -389,6 +389,68 @@ Foldable (FingerTree v) where
 (Ord a) => Ord (FingerTree v a) where
   compare xs ys = compare (toList xs) (toList ys)
 
+mapNode : (Measured v2 a2) =>
+  (a1 -> a2) -> Node v1 a1 -> Node v2 a2
+mapNode f (Node2 _ a b) = node2 (f a) (f b)
+mapNode f (Node3 _ a b c) = node3 (f a) (f b) (f c)
+
+mapTree : (Measured v2 a2) =>
+  (a1 -> a2) -> FingerTree v1 a1 -> FingerTree v2 a2
+mapTree _ Empty = Empty
+mapTree f (Single x) = Single (f x)
+mapTree f (Deep _ pr m sf) = 
+  deep (mapDigit f pr) (mapTree (mapNode f) m) (mapDigit f sf)
+
+-- | Like 'fmap', but with constraints on the element types.
+fmap' : (Measured v1 a1, Measured v2 a2) =>
+  (a1 -> a2) -> FingerTree v1 a1 -> FingerTree v2 a2
+fmap' = mapTree
+
+------------------
+
+mapWPNode : (Measured v1 a1, Measured v2 a2) =>
+  (v1 -> a1 -> a2) -> v1 -> Node v1 a1 -> Node v2 a2
+mapWPNode f v (Node2 _ a b) = node2 (f v a) (f va b)
+  where
+    va      = v <+> measure a
+mapWPNode f v (Node3 _ a b c) = node3 (f v a) (f va b) (f vab c)
+  where
+    va      = v <+> measure a
+    vab     = va <+> measure b
+
+mapWPDigit : (Measured v a) => (v -> a -> b) -> v -> Digit a -> Digit b
+mapWPDigit f v (One a) = One (f v a)
+mapWPDigit f v (Two a b) = Two (f v a) (f va b)
+  where
+    va      = v <+> measure a
+mapWPDigit f v (Three a b c) = Three (f v a) (f va b) (f vab c)
+  where
+    va      = v <+> measure a
+    vab     = va <+> measure b
+mapWPDigit f v (Four a b c d) = Four (f v a) (f va b) (f vab c) (f vabc d)
+  where
+    va      = v <+> measure a
+    vab     = va <+> measure b
+    vabc    = vab <+> measure c
+
+mapWPTree : (Measured v1 a1, Measured v2 a2) =>
+  (v1 -> a1 -> a2) -> v1 -> FingerTree v1 a1 -> FingerTree v2 a2
+mapWPTree _ _ Empty = Empty
+mapWPTree f v (Single x) = Single (f v x)
+mapWPTree f v (Deep _ pr m sf) =
+  deep (mapWPDigit f v pr)
+         (mapWPTree (mapWPNode f) vpr m)
+         (mapWPDigit f vm sf)
+  where
+    vpr     =  v    <+>  measure pr
+    vm      =  vpr  <+>  measure m
+
+-- | Map all elements of the tree with a function that also takes the
+-- measure of the prefix of the tree to the left of the element.
+fmapWithPos : (Measured v1 a1, Measured v2 a2) =>
+    (v1 -> a1 -> a2) -> FingerTree v1 a1 -> FingerTree v2 a2
+fmapWithPos f = mapWPTree f neutral
+
 ||| Transformations
 -- | /O(n)/. The reverse of a sequence.
 
