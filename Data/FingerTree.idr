@@ -83,8 +83,8 @@ mapDigit f (Four a b c d) = Four (f a) (f b) (f c) (f d)
 
 ||| foldr : (a -> b -> b) -> b -> FingerTree v a -> b
 Foldable (Node v) where
- foldr f acc (Node2 _ x y) = f x (f y acc)
- foldr f acc (Node3 _ x y z) = f z $ f y (f z acc)
+  foldr f acc (Node2 _ x y) = f x (f y acc)
+  foldr f acc (Node3 _ x y z) = f z $ f y (f z acc)
  
 node2        :  (Measured v a) => a -> a -> Node v a
 node2 a b    =   Node2 (measure a <+> measure b) a b
@@ -93,26 +93,26 @@ node3        :  (Measured v a) => a -> a -> a -> Node v a
 node3 a b c  =   Node3 (measure a <+> measure b <+> measure c) a b c
  
 Foldable Digit where
- foldr f acc (One x) = f x acc
- foldr f acc (Two x y) = f x (f y acc)
- foldr f acc (Three x y z) = f z $ f y (f z acc)
- foldr f acc (Four x y z w) = f x $ f y (f z (f w acc))
+  foldr f acc (One x) = f x acc
+  foldr f acc (Two x y) = f x (f y acc)
+  foldr f acc (Three x y z) = f z $ f y (f z acc)
+  foldr f acc (Four x y z w) = f x $ f y (f z (f w acc))
 
 
 (Measured v a) => Measured v (Digit a) where
-    measure (One x) = measure x 
-    measure (Two x y) = measure x <+> measure y
-    measure (Three x y z) = measure x <+> measure y <+> measure z
-    measure (Four x y z w) = measure x <+> measure y <+> measure z <+> measure w
+  measure (One x) = measure x 
+  measure (Two x y) = measure x <+> measure y
+  measure (Three x y z) = measure x <+> measure y <+> measure z
+  measure (Four x y z w) = measure x <+> measure y <+> measure z <+> measure w
 
 (Monoid v) => Measured v (Node v a) where
-    measure (Node2 v _ _)    =  v
-    measure (Node3 v _ _ _)  =  v
+  measure (Node2 v _ _)    =  v
+  measure (Node3 v _ _ _)  =  v
 
 (Measured v a) => Measured v (FingerTree v a) where
-    measure Empty           =  neutral
-    measure (Single x)      =  measure x
-    measure (Deep v _ _ _)  =  v
+  measure Empty           =  neutral
+  measure (Single x)      =  measure x
+  measure (Deep v _ _ _)  =  v
 
 
 nodeToDigit : Node v a -> Digit a
@@ -131,9 +131,9 @@ toListNode (Node3 _ a b c) = [a,b,c]
 toListNode (Node2 _ a b)   = [a,b]
 
 deep : (Measured v a) =>
-     Digit a -> FingerTree v (Node v a) -> Digit a -> FingerTree v a
+  Digit a -> FingerTree v (Node v a) -> Digit a -> FingerTree v a
 deep pr m sf =
-    Deep ((measure pr <+>  measure m) <+> measure sf) pr m sf
+  Deep ((measure pr <+>  measure m) <+> measure sf) pr m sf
 
 ||| Convert an affix into an entire tree, doing rebalancing if nesassary
 digitToTree : (Measured v a) => Digit a -> FingerTree v a
@@ -190,8 +190,8 @@ mutual
 
   rotR : (Measured v a) => Digit a -> FingerTree v (Node v a) -> FingerTree v a
   rotR pr m = case viewr m of
-               EmptyR  =>  digitToTree pr
-               m' :> a =>  Deep (measure pr <+> measure m) pr m' (nodeToDigit a)
+                   EmptyR  =>  digitToTree pr
+                   m' :> a =>  Deep (measure pr <+> measure m) pr m' (nodeToDigit a)
 
 ||| Construction, deconstruction and concatenation
 
@@ -383,13 +383,11 @@ Foldable (FingerTree v) where
 
 
 (Eq a) => Eq (FingerTree v a) where
-    xs == ys = toList xs == toList ys
+  xs == ys = toList xs == toList ys
 
 -- | Lexicographical order from left to right.
 (Ord a) => Ord (FingerTree v a) where
-    compare xs ys = compare (toList xs) (toList ys)
-
-
+  compare xs ys = compare (toList xs) (toList ys)
 
 ||| Transformations
 -- | /O(n)/. The reverse of a sequence.
@@ -418,16 +416,16 @@ reverse = reverseTree id
 -- on splits of the sequence changes from 'False' to 'True'.
 
 data SearchResult v a 
-    = Position (FingerTree v a) a (FingerTree v a)
+     = Position (FingerTree v a) a (FingerTree v a)
         -- ^ A tree opened at a particular element: the prefix to the
         -- left, the element, and the suffix to the right.
-    | OnLeft
+     | OnLeft
         -- ^ A position to the left of the sequence, indicating that the
         -- predicate is 'True' at both ends.
-    | OnRight
+     | OnRight
         -- ^ A position to the right of the sequence, indicating that the
         -- predicate is 'False' at both ends.
-    | Nowhere
+     | Nowhere
         -- ^ No position in the tree, returned if the predicate is 'True'
         -- at the left end and 'False' at the right end.  This will not
         -- occur if the predicate in monotonic on the tree.     
@@ -435,12 +433,12 @@ data SearchResult v a
 -- making SearchResult an instance of Eq, Ord, Show 
 
 (Show a, Show v) => Show (SearchResult v a) where
-   show (Position tree1 e tree2) = "Position " ++ "(Tree1 = " ++ show tree1 ++ " )"
+  show (Position tree1 e tree2) = "Position " ++ "(Tree1 = " ++ show tree1 ++ " )"
                                                ++ "(Element = " ++ show e ++ " )"
                                                ++ "(Tree1 = " ++ show tree1 ++ " )"
-   show OnLeft = "OnLeft"
-   show OnRight = "OnRight"
-   show Nowhere = "Nowhere"      
+  show OnLeft = "OnLeft"
+  show OnRight = "OnRight"
+  show Nowhere = "Nowhere"      
 
 (Eq (FingerTree v a), Eq a) => Eq (SearchResult v a) where
   (==) (Position tree1 e tree2) (Position tree3 r tree4) = if ( tree1 == tree3 && 
@@ -449,7 +447,7 @@ data SearchResult v a
                                                            then True 
                                                            else False
   (==) (Position tree1 e tree2) _      = False
-  (==) _ (Position tree1 e tree2)       = False
+  (==) _ (Position tree1 e tree2)      = False
 
   (==) OnLeft OnLeft   = True
   (==) OnLeft _        = False
@@ -462,24 +460,22 @@ data SearchResult v a
   (==) Nowhere Nowhere  = True
   (==) Nowhere _        = False
   (==) _       Nowhere  = False
-  
-  
 
 (Ord a, Ord (FingerTree v a)) => Ord (SearchResult v a) where
-   compare (Position t1 e t2) (Position t3 r t4) = if (t1 == t3) && (e == r) && (t2 == t4) then EQ else
+  compare (Position t1 e t2) (Position t3 r t4) = if (t1 == t3) && (e == r) && (t2 == t4) then EQ else
                                                    if (t1 < t3) then LT else
                                                    if (t1 == t3) && (e < r) then LT else
                                                    if (t1 == t3) && (e == r) && (t2 < t4) then LT else
                                                    GT
-   compare (Position t1 e t2) OnLeft             = LT
-   compare (Position t1 e t2) OnRight            = GT
-   compare (Position t1 e t2) Nowhere            = GT
+  compare (Position t1 e t2) OnLeft             = LT
+  compare (Position t1 e t2) OnRight            = GT
+  compare (Position t1 e t2) Nowhere            = GT
    
-   compare OnLeft _                              = GT
-   compare OnRight Nowhere                       = GT
-   compare OnRight _                             = LT
+  compare OnLeft _                              = GT
+  compare OnRight Nowhere                       = GT
+  compare OnRight _                             = LT
    
-   compare Nowhere _                             = LT
+  compare Nowhere _                             = LT
 
 -- | /O(log(min(i,n-i)))/. Search a sequence for a point where a predicate
 -- on splits of the sequence changes from 'False' to 'True'.
@@ -509,6 +505,7 @@ data SearchResult v a
 -- point, i.e. that the predicate is /monotonic/ on @t@.
 
 data Splited t a = Split t a t
+
 data NonEmptyTree : (tree : FingerTree v a) -> Type where
   SingleTree : NonEmptyTree (Single a)
   DeepTree : NonEmptyTree (Deep v l m r)
@@ -611,7 +608,7 @@ searchTree _ _ (Single x) _ = Split Empty x Empty
 searchTree p vl (Deep _ pr m sf) vr =
   if p vlp vmsr  then  let Split l x r = searchDigit p vl pr vmsr
                        in  Split (maybe Empty digitToTree l) x (deepL r m sf)
-  else if p vlpm vsr  then  let  Split ml xs mr  =  searchTree p vlp m vsr
+  else if p vlpm vsr  then  let  Split ml xs mr  =  searchTree p vlp m {ok = ?emptyProof} vsr
                                  Split l x r     =  searchNode p (vlp <+> measure ml) xs (measure mr <+> vsr)
                             in   Split (deepR pr  ml l) x (deepL r mr sf)
   else  let  Split l x r =  searchDigit p vm sf vr
@@ -625,7 +622,7 @@ searchTree p vl (Deep _ pr m sf) vr =
 
 search : (Measured v a) => (v -> v -> Bool) -> FingerTree v a -> SearchResult v a
 search p t = if (p_left && p_right) then OnLeft else
-             if (not p_left) && p_right then case searchTree p neutral t neutral of
+             if (not p_left) && p_right then case searchTree p neutral t {ok = ?emptyProof}  neutral of
                                                     Split l x r => Position l x r
              else 
              if not p_left && not p_right then OnRight 
@@ -641,7 +638,7 @@ splitTree p i (Deep _ pr m sf) =
   if (p (i <+> measure pr)) then let  Split l x r     =  splitDigit p i pr
                                  in   Split (maybe Empty digitToTree l) x (deepL r m sf)
   else                           
-  if (p ((i <+> measure pr) <+>  measure m)) then let  Split ml xs mr  =  splitTree p (i <+> measure pr) m
+  if (p ((i <+> measure pr) <+>  measure m)) then let  Split ml xs mr  =  splitTree p (i <+> measure pr) m {ok = ?emptyProof}
                                                        Split l x r     =  splitNode p ((i <+> measure pr) <+> measure ml) xs
                                                   in   Split (deepR pr  ml l) x (deepL r mr sf)
   else                           
@@ -656,7 +653,7 @@ splitTree p i (Deep _ pr m sf) =
 split :  (Measured v a) => (v -> Bool) -> FingerTree v a -> (FingerTree v a, FingerTree v a)
 split _ Empty  =  (Empty, Empty)
 split p xs = 
-  if p (measure xs) then let Split l x r = splitTree p neutral xs 
+  if p (measure xs) then let Split l x r = splitTree p neutral xs {ok = ?emptyProof}
                          in (l, x <| r)
   else     (xs, Empty)
 
@@ -669,6 +666,7 @@ takeUntil : (Measured v a) => (v -> Bool) -> FingerTree v a -> FingerTree v a
 takeUntil p  =  fst . split p
 
 -- | /O(log(min(i,n-i)))/.
+
 -- Given a monotonic predicate @p@, @'dropUntil' p t@ is the rest of @t@
 -- after removing the largest prefix whose measure does not satisfy @p@.
 --
