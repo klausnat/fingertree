@@ -451,6 +451,225 @@ fmapWithPos : (Measured v1 a1, Measured v2 a2) =>
     (v1 -> a1 -> a2) -> FingerTree v1 a1 -> FingerTree v2 a2
 fmapWithPos f = mapWPTree f neutral
 
+--------------------
+-- | Map all elements of the tree with a function that also takes the
+-- measure of the prefix to the left and of the suffix to the right of
+-- the element.
+
+mapWCNode : (Measured v1 a1, Measured v2 a2) =>
+    (v1 -> a1 -> v1 -> a2) -> v1 -> Node v1 a1 -> v1 -> Node v2 a2
+mapWCNode f vl (Node2 _ a b) vr = node2 (f vl a vb) (f va b vr)
+  where
+    va      = vl <+> measure a
+    vb      = measure b <+> vr
+mapWCNode f vl (Node3 _ a b c) vr = node3 (f vl a vbc) (f va b vc) (f vab c vr)
+  where
+    va      = vl <+> measure a
+    vab     = va <+> measure b
+    vbc     = measure b <+> vc
+    vc      = measure c <+> vr
+
+mapWCDigit :
+    (Measured v a) => (v -> a -> v -> b) -> v -> Digit a -> v -> Digit b
+mapWCDigit f vl (One a) vr = One (f vl a vr)
+mapWCDigit f vl (Two a b) vr = Two (f vl a vb) (f va b vr)
+  where
+    va      = vl <+> measure a
+    vb      = measure b <+> vr
+mapWCDigit f vl (Three a b c) vr = Three (f vl a vbc) (f va b vc) (f vab c vr)
+  where
+    va      = vl <+> measure a
+    vab     = va <+> measure b
+    vbc     = measure b <+> vc
+    vc      = measure c <+> vr
+mapWCDigit f vl (Four a b c d) vr =
+    Four (f vl a vbcd) (f va b vcd) (f vab c vd) (f vabc d vr)
+  where
+    va      = vl <+> measure a
+    vab     = va <+> measure b
+    vabc    = vab <+> measure c
+    vbcd    = measure b <+> vcd
+    vcd     = measure c <+> vd
+    vd      = measure d <+> vr
+
+mapWCTree : (Measured v1 a1, Measured v2 a2) =>
+    (v1 -> a1 -> v1 -> a2) -> v1 -> FingerTree v1 a1 -> v1 -> FingerTree v2 a2
+mapWCTree _ _ Empty _ = Empty
+mapWCTree f vl (Single x) vr = Single (f vl x vr)
+mapWCTree f vl (Deep _ pr m sf) vr =
+    deep (mapWCDigit f vl pr vmsr)
+         (mapWCTree (mapWCNode f) vlp m vsr)
+         (mapWCDigit f vlpm sf vr)
+  where
+    vlp     =  vl <+> measure pr
+    vlpm    =  vlp <+> vm where vm = measure m
+    vmsr    =  vm <+> vsr where vm = measure m
+    vsr     =  measure sf <+> vr
+
+fmapWithContext : (Measured v1 a1, Measured v2 a2) =>
+    (v1 -> a1 -> v1 -> a2) -> FingerTree v1 a1 -> FingerTree v2 a2
+fmapWithContext f t = mapWCTree f neutral t neutral    
+            
+------------------    
+
+unsafeFmapNode : (a -> b) -> Node v a -> Node v b
+unsafeFmapNode f (Node2 v a b) = Node2 v (f a) (f b)
+unsafeFmapNode f (Node3 v a b c) = Node3 v (f a) (f b) (f c)
+
+-- | Like 'fmap', but safe only if the function preserves the measure.
+unsafeFmap : (a -> b) -> FingerTree v a -> FingerTree v b
+unsafeFmap _ Empty = Empty
+unsafeFmap f (Single x) = Single (f x)
+unsafeFmap f (Deep v pr m sf) =
+    Deep v (mapDigit f pr) (unsafeFmap (unsafeFmapNode f) m) (mapDigit f sf)
+
+-----------------
+
+traverseNode : (Measured v2 a2, Applicative f) =>
+    (a1 -> f a2) -> Node v1 a1 -> f (Node v2 a2)
+traverseNode f (Node2 _ a b) = node2 <$> f a <*> f b
+traverseNode f (Node3 _ a b c) = node3 <$> f a <*> f b <*> f c
+
+traverseDigit : (Applicative f) => (a -> f b) -> Digit a -> f (Digit b)
+traverseDigit f (One a) = One <$> f a
+traverseDigit f (Two a b) = Two <$> f a <*> f b
+traverseDigit f (Three a b c) = Three <$> f a <*> f b <*> f c
+traverseDigit f (Four a b c d) = Four <$> f a <*> f b <*> f c <*> f d
+
+traverseTree : (Measured v2 a2, Applicative f) =>
+    (a1 -> f a2) -> FingerTree v1 a1 -> f (FingerTree v2 a2)
+traverseTree _ Empty = pure Empty
+traverseTree f (Single x) = Single <$> f x
+traverseTree f (Deep _ pr m sf) =
+    deep <$> traverseDigit f pr <*> traverseTree (traverseNode f) m <*> traverseDigit f sf
+
+-- | Like 'traverse', but with constraints on the element types.
+traverse' : (Measured v1 a1, Measured v2 a2, Applicative f) =>
+    (a1 -> f a2) -> FingerTree v1 a1 -> f (FingerTree v2 a2)
+traverse' = traverseTree
+
+-----------------
+
+traverseWPNode : (Measured v1 a1, Measured v2 a2, Applicative f) =>
+    (v1 -> a1 -> f a2) -> v1 -> Node v1 a1 -> f (Node v2 a2)
+traverseWPNode f v (Node2 _ a b) = node2 <$> f v a <*> f va b
+  where
+    va      = v <+> measure a
+traverseWPNode f v (Node3 _ a b c) = node3 <$> f v a <*> f va b <*> f vab c
+  where
+    va      = v <+> measure a
+    vab     = va <+> measure b
+
+traverseWPDigit : (Measured v a, Applicative f) =>
+    (v -> a -> f b) -> v -> Digit a -> f (Digit b)
+traverseWPDigit f v (One a) = One <$> f v a
+traverseWPDigit f v (Two a b) = Two <$> f v a <*> f va b
+  where
+    va      = v <+> measure a
+traverseWPDigit f v (Three a b c) = Three <$> f v a <*> f va b <*> f vab c
+  where
+    va      = v <+> measure a
+    vab     = va <+> measure b
+traverseWPDigit f v (Four a b c d) = Four <$> f v a <*> f va b <*> f vab c <*> f vabc d
+  where
+    va      = v <+> measure a
+    vab     = va <+> measure b
+    vabc    = vab <+> measure c
+
+traverseWPTree : (Measured v1 a1, Measured v2 a2, Applicative f) =>
+    (v1 -> a1 -> f a2) -> v1 -> FingerTree v1 a1 -> f (FingerTree v2 a2)
+traverseWPTree _ _ Empty = pure Empty
+traverseWPTree f v (Single x) = Single <$> f v x
+traverseWPTree f v (Deep _ pr m sf) =
+    deep <$> traverseWPDigit f v pr <*> traverseWPTree (traverseWPNode f) vpr m <*> traverseWPDigit f vm sf
+  where
+    vpr     =  v    <+>  measure pr
+    vm      =  vpr  <+>  measure m
+
+-- | Traverse the tree from left to right with a function that also
+-- takes the measure of the prefix of the tree to the left of the element.
+traverseWithPos : (Measured v1 a1, Measured v2 a2, Applicative f) =>
+    (v1 -> a1 -> f a2) -> FingerTree v1 a1 -> f (FingerTree v2 a2)
+traverseWithPos f = traverseWPTree f neutral
+
+-----------------
+
+traverseWCNode : (Measured v1 a1, Measured v2 a2, Applicative f) =>
+    (v1 -> a1 -> v1 -> f a2) -> v1 -> Node v1 a1 -> v1 -> f (Node v2 a2)
+traverseWCNode f vl (Node2 _ a b) vr = node2 <$> f vl a vb <*> f va b vr
+  where
+    va      = vl <+> measure a
+    vb      = measure a <+> vr
+traverseWCNode f vl (Node3 _ a b c) vr =
+    node3 <$> f vl a vbc <*> f va b vc <*> f vab c vr
+  where
+    va      = vl <+> measure a
+    vab     = va <+> measure b
+    vc      = measure c <+> vr
+    vbc     = measure b <+> vc
+
+traverseWCDigit : (Measured v a, Applicative f) =>
+    (v -> a -> v -> f b) -> v -> Digit a -> v -> f (Digit b)
+traverseWCDigit f vl (One a) vr = One <$> f vl a vr
+traverseWCDigit f vl (Two a b) vr = Two <$> f vl a vb <*> f va b vr
+  where
+    va      = vl <+> measure a
+    vb      = measure a <+> vr
+traverseWCDigit f vl (Three a b c) vr =
+    Three <$> f vl a vbc <*> f va b vc <*> f vab c vr
+  where
+    va      = vl <+> measure a
+    vab     = va <+> measure b
+    vc      = measure c <+> vr
+    vbc     = measure b <+> vc
+traverseWCDigit f vl (Four a b c d) vr =
+    Four <$> f vl a vbcd <*> f va b vcd <*> f vab c vd <*> f vabc d vr
+  where
+    va      = vl <+> measure a
+    vab     = va <+> measure b
+    vabc    = vab <+> measure c
+    vd      = measure d <+> vr
+    vcd     = measure c <+> vd
+    vbcd    = measure b <+> vcd
+    
+traverseWCTree : (Measured v1 a1, Measured v2 a2, Applicative f) =>
+    (v1 -> a1 -> v1 -> f a2) -> v1 -> FingerTree v1 a1 -> v1 -> f (FingerTree v2 a2)
+traverseWCTree _ _ Empty _ = pure Empty
+traverseWCTree f vl (Single x) vr = Single <$> f vl x vr
+traverseWCTree f vl (Deep _ pr m sf) vr =
+    deep <$> traverseWCDigit f vl pr vmsr <*> traverseWCTree (traverseWCNode f) vlp m vsr <*> traverseWCDigit f vlpm sf vr
+  where
+    vlp     =  vl <+> measure pr
+    vlpm    =  vlp <+> vm where vm = measure m
+    vmsr    =  vm <+> vsr where vm = measure m
+    vsr     =  measure sf <+> vr 
+      
+
+-- | Traverse the tree from left to right with a function that also
+-- takes the measure of the prefix to the left and the measure of the
+-- suffix to the right of the element.
+
+traverseWithContext : (Measured v1 a1, Measured v2 a2, Applicative f) =>
+    (v1 -> a1 -> v1 -> f a2) -> FingerTree v1 a1 -> f (FingerTree v2 a2)
+traverseWithContext f t = traverseWCTree f neutral t neutral
+
+-----------------
+
+unsafeTraverseNode : (Applicative f) =>
+    (a -> f b) -> Node v a -> f (Node v b)
+unsafeTraverseNode f (Node2 v a b) = Node2 v <$> f a <*> f b
+unsafeTraverseNode f (Node3 v a b c) = Node3 v <$> f a <*> f b <*> f c
+
+-- | Like 'traverse', but safe only if the function preserves the measure.
+unsafeTraverse : (Applicative f) =>
+    (a -> f b) -> FingerTree v a -> f (FingerTree v b)
+unsafeTraverse _ Empty = pure Empty
+unsafeTraverse f (Single x) = Single <$> f x
+unsafeTraverse f (Deep v pr m sf) =
+    Deep v <$> traverseDigit f pr <*> unsafeTraverse (unsafeTraverseNode f) m <*> traverseDigit f sf
+
+-----------------
+
 ||| Transformations
 -- | /O(n)/. The reverse of a sequence.
 
@@ -547,7 +766,7 @@ data SearchResult v a
 -- If the relation is 'False' at the leftmost split and 'True' at the
 -- rightmost split, i.e.
 --
--- @not (p 'mempty' ('measure' t)) && p ('measure' t) 'mempty'@
+-- @not (p 'neutral' ('measure' t)) && p ('measure' t) 'neutral'@
 --
 -- then there must exist an element @x@ in the sequence such that @p@
 -- is 'False' for the split immediately before @x@ and 'True' for the
